@@ -31,7 +31,11 @@ TASK_ID="$(jq -r --arg ws "$WS" \
   "$SPRINT_FILE" | head -n1)"
 
 if [ -z "${TASK_ID:-}" ] || [ "$TASK_ID" = "null" ]; then
-  /Users/vince.lee/.claude/skills/gstack/bin/sprint-setup "$WS" "$ROOT"
+  GSTACK_BIN="$HOME/.codex/skills/gstack/bin"
+  if [ ! -x "$GSTACK_BIN/sprint-setup" ]; then
+    GSTACK_BIN="$HOME/.claude/skills/gstack/bin"
+  fi
+  "$GSTACK_BIN/sprint-setup" "$WS" "$ROOT"
   TASK_ID="$(jq -r --arg ws "$WS" \
     '.tasks[] | select(.workspace == $ws and .status == "in-progress") | .id' \
     "$SPRINT_FILE" | head -n1)"

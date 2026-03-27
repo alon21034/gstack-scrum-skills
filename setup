@@ -5,17 +5,41 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-GSTACK_ROOT="${GSTACK_ROOT:-$HOME/.claude/skills/gstack}"
-COMMANDS_DIR="${COMMANDS_DIR:-$HOME/.claude/commands}"
+GSTACK_ROOT="${GSTACK_ROOT:-}"
+COMMANDS_DIR="${COMMANDS_DIR:-}"
 DRY_RUN=false
+
+default_gstack_root() {
+  if [[ -d "$HOME/.codex/skills/gstack" ]]; then
+    printf "%s\n" "$HOME/.codex/skills/gstack"
+    return
+  fi
+  if [[ -d "$HOME/.claude/skills/gstack" ]]; then
+    printf "%s\n" "$HOME/.claude/skills/gstack"
+    return
+  fi
+  printf "%s\n" "$HOME/.codex/skills/gstack"
+}
+
+default_commands_dir() {
+  if [[ -d "$HOME/.codex/commands" ]]; then
+    printf "%s\n" "$HOME/.codex/commands"
+    return
+  fi
+  if [[ -d "$HOME/.claude/commands" ]]; then
+    printf "%s\n" "$HOME/.claude/commands"
+    return
+  fi
+  printf "%s\n" "$HOME/.codex/commands"
+}
 
 usage() {
   cat <<'EOF'
 Usage: ./setup [options]
 
 Options:
-  --gstack-root <path>   gstack root directory (default: ~/.claude/skills/gstack)
-  --commands-dir <path>  Claude commands directory (default: ~/.claude/commands)
+  --gstack-root <path>   gstack root directory (default: ~/.codex/skills/gstack, fallback ~/.claude/skills/gstack)
+  --commands-dir <path>  commands directory (default: ~/.codex/commands, fallback ~/.claude/commands)
   --dry-run              Print actions without writing files
   -h, --help             Show this help
 
@@ -75,6 +99,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -z "$GSTACK_ROOT" ]]; then
+  GSTACK_ROOT="$(default_gstack_root)"
+fi
+if [[ -z "$COMMANDS_DIR" ]]; then
+  COMMANDS_DIR="$(default_commands_dir)"
+fi
+
 GSTACK_ROOT="$(expand_path "$GSTACK_ROOT")"
 COMMANDS_DIR="$(expand_path "$COMMANDS_DIR")"
 
@@ -100,8 +131,9 @@ if [[ ! -d "$GSTACK_ROOT" ]]; then
   cat >&2 <<EOF
 ERROR: gstack root not found: $GSTACK_ROOT
 Install gstack first, for example:
-  git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack
-  cd ~/.claude/skills/gstack && ./setup
+  git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.codex/skills/gstack
+  cd ~/.codex/skills/gstack && ./setup
+(Claude users can use ~/.claude/skills/gstack instead.)
 EOF
   exit 1
 fi
