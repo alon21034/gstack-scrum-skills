@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+# sprint-setup — Conductor workspace bootstrap for gstack sprint
+# Usage: sprint-setup <workspace-name> <conductor-root-path>
+# Called by conductor.json scripts.setup on workspace creation.
+#
+# What it does:
+#   1. Validates the sprint file exists and is valid JSON
+#   2. Atomically claims first available pending task (using flock)
+#   3. Creates a git branch for the task
+#   4. Writes a /sprint-task slash command to .claude/commands/
+#   5. Writes .sprint-task-prompt.txt for the conductor.json run script
+#
+# On any failure after claiming, trap ERR rolls the task back to "pending".
+
+set -euo pipefail
+
+WORKSPACE_NAME="${1:-$CONDUCTOR_WORKSPACE_NAME}"
+ROOT_PATH="${2:-$CONDUCTOR_ROOT_PATH}"
+
+if [ -z "$WORKSPACE_NAME" ] || [ -z "$ROOT_PATH" ]; then
+  echo "ERROR: Usage: sprint-setup <workspace-name> <conductor-root-path>" >&2
+  echo "       Or set CONDUCTOR_WORKSPACE_NAME and CONDUCTOR_ROOT_PATH env vars." >&2
+  exit 1
+fi
+
+# Guard: jq required
+command -v jq >/dev/null 2>&1 || {
+  echo "ERROR: jq is required. Install with: brew install jq" >&2
+  exit 1
+}
+
+SPRINT_FILE="$ROOT_PATH/.gstack-sprint.json"
+LOCK_FILE="$ROOT_PATH/.gstack-sprint.lock"
+
+# Validate sprint file exists and is valid JSON
+[ -f "$SPRINT_FILE" ] || {
+  echo "ERROR: Sprint file not found at $SPRINT_FILE" >&2
+  echo "       Run /sprint in a CC session to create a sprint first." >&2
+  exit 1
+}
+jq empty "$SPRINT_FILE" 2>/dev/null || {
+  echo "ERROR: Sprint file is not valid JSON: $SPRINT_FILE" >&2
+  exit 1
+}
+
+# Check sprint is active
+SPRINT_STATUS=$(jq -r '.sprint.status' "$SPRINT_FILE")
+if [ "$SPRINT_STATUS" != "active" ]; then
+  echo "ERROR: Sprint status is '$SPRINT_STATUS' — no active sprint to join." >&2
+  exit 1
+fi
+
+# Claim a task atomically using flock
+TASK_ID=""
+TASK_TITLE=""
+TASK_DESC=""
+
+(
+  flock -w 5 -x 200 || {
+    echo "ERROR: Could not acquire sprint lock after 5 seconds. Another workspace may be starting." >&2
+    exit 1
+  }
+
+  # Find first pending task whose dependencies (if any) are all done
+  TASK_ID=$(jq -r '
+    . as $root |
+    [.tasks[] | select(.status == "pending") |
+     select((.depends_on // []) | length == 0 or
+       (map(. as $dep | $root.tasks[] | select(.id == $dep) | .status == "done") | all))]
+    | .[0].id
+  ' "$SPRINT_FILE")
+
+  if [ -z "$TASK_ID" ] || [ "$TASK_ID" = "null" ]; then
+    # Check if there are pending tasks with unresolved dependencies
+    BLOCKED_COUNT=$(jq '[.tasks[] | select(.status == "pending")] | length' "$SPRINT_FILE")
+    if [ "$BLOCKED_COUNT" -gt "0" ]; then
+      echo "No available tasks — waiting for dependencies to complete. ($BLOCKED_COUNT task(s) blocked)" >&2
+    else
+      echo "No pending tasks available — all tasks claimed or completed." >&2
+    fi
+    exit 1
+  fi
+
+  # Mark task as in-progress and record workspace
+  jq --arg ws "$WORKSPACE_NAME" --argjson id "$TASK_ID" \
+    --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '(.tasks[] | select(.id == $id)).status = "in-progress" |
+     (.tasks[] | select(.id == $id)).workspace = $ws |
+     (.tasks[] | select(.id == $id)).started_at = $ts' \
+    "$SPRINT_FILE" > "$SPRINT_FILE.tmp" && mv "$SPRINT_FILE.tmp" "$SPRINT_FILE"
+
+  echo "CLAIMED_TASK_ID=$TASK_ID"
+) 200>"$LOCK_FILE"
+
+# Read back claimed task details
+TASK_ID=$(jq -r --arg ws "$WORKSPACE_NAME" \
+  '.tasks[] | select(.workspace == $ws and .status == "in-progress") | .id' \
+  "$SPRINT_FILE")
+
+if [ -z "$TASK_ID" ] || [ "$TASK_ID" = "null" ]; then
+  echo "ERROR: Failed to claim task (lock race or file error)." >&2
+  exit 1
+fi
+
+TASK_TITLE=$(jq -r --argjson id "$TASK_ID" '.tasks[] | select(.id == $id) | .title' "$SPRINT_FILE")
+TASK_DESC=$(jq -r --argjson id "$TASK_ID" '.tasks[] | select(.id == $id) | .description' "$SPRINT_FILE")
+SPRINT_ID=$(jq -r '.sprint.id' "$SPRINT_FILE")
+SPRINT_TOPIC=$(jq -r '.sprint.topic' "$SPRINT_FILE")
+
+echo "Claimed task $TASK_ID: $TASK_TITLE"
+
+# Rollback task to pending if any subsequent step fails
+rollback() {
+  echo "sprint-setup failed — rolling task $TASK_ID back to pending." >&2
+  jq --argjson id "$TASK_ID" \
+    '(.tasks[] | select(.id == $id)).status = "pending" |
+     (.tasks[] | select(.id == $id)).workspace = null |
+     (.tasks[] | select(.id == $id)).started_at = null' \
+    "$SPRINT_FILE" > "$SPRINT_FILE.tmp" 2>/dev/null && mv "$SPRINT_FILE.tmp" "$SPRINT_FILE" || true
+}
+trap rollback ERR
+
+# Create git branch for this task
+TASK_SLUG=$(echo "$TASK_TITLE" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd '[:alnum:]-' | cut -c1-40)
+BRANCH_NAME="sprint/task-${TASK_ID}-${TASK_SLUG}"
+
+git checkout -b "$BRANCH_NAME" 2>/dev/null || {
+  # Branch may already exist if workspace was recreated
+  git checkout "$BRANCH_NAME" 2>/dev/null || {
+    echo "ERROR: Could not create or checkout branch $BRANCH_NAME" >&2
+    exit 1
+  }
+}
+
+# Write branch name back to sprint file
+(
+  flock -w 5 -x 200
+  jq --argjson id "$TASK_ID" --arg branch "$BRANCH_NAME" \
+    '(.tasks[] | select(.id == $id)).branch = $branch' \
+    "$SPRINT_FILE" > "$SPRINT_FILE.tmp" && mv "$SPRINT_FILE.tmp" "$SPRINT_FILE"
+) 200>"$LOCK_FILE"
+
+echo "Created branch: $BRANCH_NAME"
+
+# Write per-workspace /sprint-task slash command
+COMMANDS_DIR=".claude/commands"
+mkdir -p "$COMMANDS_DIR"
+
+cat > "$COMMANDS_DIR/sprint-task.md" << SPRINT_TASK_EOF
+Read the task assigned to this workspace from .gstack-sprint.json (task id: ${TASK_ID}).
+Your sprint: ${SPRINT_TOPIC}
+Your task: ${TASK_TITLE}
+
+Full task description:
+${TASK_DESC}
+
+Instructions:
+1. Read .gstack-sprint.json to understand the full sprint context and what other agents are working on.
+2. Implement the task described above. Stay within the scope of your task — do not touch files assigned to other workspaces.
+3. When implementation is complete, update the task status to "review":
+   jq --argjson id ${TASK_ID} '(.tasks[] | select(.id == \$id)).status = "review"' .gstack-sprint.json > .gstack-sprint.json.tmp && mv .gstack-sprint.json.tmp .gstack-sprint.json
+4. Summarize what you changed and why.
+5. Do NOT merge or create a PR — the human reviewer will run sprint-approve ${TASK_ID} when ready.
+SPRINT_TASK_EOF
+
+echo "Wrote /sprint-task slash command to $COMMANDS_DIR/sprint-task.md"
+
+# Write prompt file for conductor.json run script auto-invocation
+cat > ".sprint-task-prompt.txt" << PROMPT_EOF
+/sprint-task
+PROMPT_EOF
+
+echo "Wrote .sprint-task-prompt.txt"
+echo "Sprint setup complete. Task $TASK_ID ($TASK_TITLE) is ready."
+echo "The run script will auto-invoke /sprint-task when Conductor starts the agent."

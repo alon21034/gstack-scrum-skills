@@ -1,0 +1,216 @@
+---
+name: sprint
+preamble-tier: 2
+version: 1.0.0
+description: |
+  Lightweight Scrum coordination for multi-agent development with Conductor.
+  Decomposes a sprint topic into tasks, writes .gstack-sprint.json, and configures
+  conductor.json so each Conductor workspace auto-claims and executes a task.
+  Use when starting a new sprint, parallelizing work across agents, or when asked
+  to "start a sprint", "run parallel agents", or "set up multi-agent execution".
+  Proactively suggest when the user mentions planning a sprint or using Conductor.
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - AskUserQuestion
+---
+
+{{PREAMBLE}}
+
+# /sprint — Multi-Agent Sprint Coordinator
+
+Sets up a gstack sprint: decomposes a topic into tasks, writes the sprint state file,
+and configures Conductor workspaces to auto-claim and execute tasks in parallel.
+
+The human's only job is to think about the sprint topic. Everything else is automatic.
+
+## User-invocable
+When the user types `/sprint`, run this skill.
+
+## Prerequisites
+- Conductor installed (https://docs.conductor.build/)
+- `jq` installed (`brew install jq`)
+- `watch` installed for live board (`brew install watch`)
+- gstack sprint-setup script at `~/.claude/skills/gstack/bin/sprint-setup`
+
+---
+
+## Step 1: Locate or generate the plan
+
+Run the slug utility to identify the current project:
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+echo "SLUG: $SLUG"
+echo "BRANCH: $(git branch --show-current 2>/dev/null || echo unknown)"
+```
+
+**Find existing plan:** Check for a prior `/autoplan` output for this branch:
+
+```bash
+setopt +o nomatch 2>/dev/null || true
+_BRANCH=$(git branch --show-current 2>/dev/null | tr '/' '-')
+ls -t ~/.gstack/projects/$SLUG/*${_BRANCH}*plan*.md 2>/dev/null | head -3
+```
+
+If a plan file is found:
+- Read its first 50 lines
+- Ask: "Found prior plan: `{filename}`. Use this or describe a new sprint topic?"
+  - A) Use the existing plan
+  - B) Describe a new topic (will call /autoplan)
+
+If no plan file is found:
+- Ask: "No plan found. What's your sprint topic?" (one-line description)
+- After the user responds, call `/autoplan` with that topic to generate the plan
+
+**If calling /autoplan:** Read the autoplan skill and execute it. The output is a structured numbered list of implementation steps — that list IS the task decomposition input.
+
+---
+
+## Step 2: Parse tasks from the plan
+
+Extract top-level numbered list items from the plan. These become sprint tasks.
+
+**Parsing rule:** Find lines matching `^\d+\. ` (top-level numbered items only, not sub-items). For each:
+- `title`: the text before the first ` — ` (dash separator) or the first 50 chars if no separator
+- `description`: the full line text (this is what the agent reads when executing)
+
+**Bounds check:**
+- If < 2 tasks extracted: Use AskUserQuestion — "The plan decomposed to only {N} task(s). The sprint needs at least 2 parallel tasks. Options: A) Narrow the scope and regenerate B) Add more tasks manually C) Proceed with {N} task(s) anyway"
+- If > 6 tasks extracted: Use AskUserQuestion — "The plan has {N} tasks — that's a lot of workspaces. Options: A) Merge smallest adjacent tasks (recommended, ~{N/2} tasks) B) Proceed with all {N} C) I'll pick which tasks to keep"
+
+**Dependency detection:** Tasks that reference the same module/file should be sequenced. If task B's description mentions a file created in task A, set `depends_on: [A_id]` on task B. Tasks with no shared files get no `depends_on` field (run in parallel).
+
+Show the user the task list before proceeding:
+
+```
+Sprint tasks:
+  1. {title} — {first 60 chars of description}
+  2. {title} — ...
+  3. {title} — ...
+  [depends_on connections shown as: "3 depends on 1"]
+
+Proceed? A) Yes  B) Edit task list first
+```
+
+Wait for confirmation before writing any files.
+
+---
+
+## Step 3: Write .gstack-sprint.json
+
+Determine the sprint file location:
+
+```bash
+# Prefer $CONDUCTOR_ROOT_PATH (shared across all workspaces)
+# Fall back to git repo root if running outside Conductor
+SPRINT_DIR="${CONDUCTOR_ROOT_PATH:-$(git rev-parse --show-toplevel 2>/dev/null)}"
+SPRINT_FILE="$SPRINT_DIR/.gstack-sprint.json"
+echo "SPRINT_FILE: $SPRINT_FILE"
+```
+
+If an existing sprint file is found and has `status: "active"`, use AskUserQuestion:
+"An active sprint already exists (`{sprint.topic}`, {N} tasks, {M} done). Options:
+A) Archive it and start a new sprint (recommended)
+B) Add tasks to the existing sprint
+C) Cancel — resume the existing sprint instead"
+
+Write the sprint file:
+
+```json
+{
+  "sprint": {
+    "id": "sprint-{YYYYMMDD}-{4-char-random-hex}",
+    "topic": "{user's topic}",
+    "created": "{ISO-8601 timestamp}",
+    "status": "active"
+  },
+  "tasks": [
+    {
+      "id": 1,
+      "title": "{title}",
+      "description": "{full description}",
+      "status": "pending",
+      "workspace": null,
+      "branch": null,
+      "started_at": null,
+      "completed_at": null
+    }
+  ]
+}
+```
+
+For tasks with dependencies, add the field: `"depends_on": [dep_id]`
+For tasks without dependencies, omit `depends_on` entirely.
+
+Validate the written JSON with `jq empty "$SPRINT_FILE"` before proceeding.
+
+---
+
+## Step 4: Merge conductor.json
+
+Read the existing `conductor.json` in the repo root if present. Preserve ALL existing fields,
+only updating `scripts.setup`. Do NOT overwrite `scripts.run` or `scripts.archive`.
+
+```bash
+CONDUCTOR_JSON="$(git rev-parse --show-toplevel 2>/dev/null)/conductor.json"
+```
+
+If `conductor.json` exists: read it, merge `scripts.setup`, write back.
+If it does not exist: create it with `scripts.setup` only (no `scripts.run` default — the user's project may not use npm).
+
+The setup script value to set:
+```
+~/.claude/skills/gstack/bin/sprint-setup $CONDUCTOR_WORKSPACE_NAME $CONDUCTOR_ROOT_PATH
+```
+
+Example merged output:
+```json
+{
+  "scripts": {
+    "setup": "~/.claude/skills/gstack/bin/sprint-setup $CONDUCTOR_WORKSPACE_NAME $CONDUCTOR_ROOT_PATH",
+    "run": "npm run dev"
+  }
+}
+```
+
+---
+
+## Step 5: Print instructions
+
+Output a clear summary:
+
+```
+Sprint created: {sprint-id}
+Topic: {topic}
+Tasks: {N} ({M} parallel, {K} sequential)
+
+Sprint board:
+  sprint-board {sprint-file-path}
+
+Next steps:
+  1. Open Conductor
+  2. Press ⌘+K {N} times (once per task)
+     Each workspace will auto-claim a task and start executing.
+  3. Watch the board: sprint-board {sprint-file-path}
+  4. When a task shows REVIEW, run: sprint-approve {task-id}
+
+Tip: Install watch if you haven't: brew install watch
+```
+
+---
+
+## Telemetry (run last)
+
+```bash
+_TEL_END=$(date +%s)
+_TEL_DUR=$(( _TEL_END - _TEL_START ))
+rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
+~/.claude/skills/gstack/bin/gstack-telemetry-log \
+  --skill "sprint" --duration "$_TEL_DUR" --outcome "success" \
+  --used-browse "false" --session-id "$_SESSION_ID" 2>/dev/null &
+```

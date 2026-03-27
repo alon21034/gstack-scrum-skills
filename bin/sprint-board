@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# sprint-board — Live terminal sprint board using watch + jq
+# Usage: sprint-board [path-to-sprint-file]
+# Default sprint file: .gstack-sprint.json in current directory
+# Requires: jq, watch (macOS: brew install watch)
+#
+# Shows a live-updating table of all tasks with their current status,
+# assigned workspace, and sprint progress. Refreshes every 3 seconds.
+
+set -euo pipefail
+
+SPRINT_FILE="${1:-.gstack-sprint.json}"
+
+# Guards
+command -v jq >/dev/null 2>&1 || {
+  echo "ERROR: jq is required. Install with: brew install jq" >&2
+  exit 1
+}
+
+command -v watch >/dev/null 2>&1 || {
+  echo "ERROR: 'watch' is required for the live board." >&2
+  echo "Install it with: brew install watch" >&2
+  exit 1
+}
+
+[ -f "$SPRINT_FILE" ] || {
+  echo "ERROR: Sprint file not found: $SPRINT_FILE" >&2
+  echo "Usage: sprint-board [path-to-sprint-file]" >&2
+  echo "Run /sprint in a CC session to create a sprint first." >&2
+  exit 1
+}
+
+jq empty "$SPRINT_FILE" 2>/dev/null || {
+  echo "ERROR: Sprint file is not valid JSON: $SPRINT_FILE" >&2
+  exit 1
+}
+
+# Use absolute path so watch can find the file from any cwd
+SPRINT_FILE=$(cd "$(dirname "$SPRINT_FILE")" && pwd)/$(basename "$SPRINT_FILE")
+
+watch -n 3 "jq -r '
+  \"═══════════════════════════════════════════════════════════════\",
+  (\"  SPRINT: \" + .sprint.topic + \"  [\" + (.sprint.status | ascii_upcase) + \"]  \" + (.tasks | length | tostring) + \" tasks\"),
+  \"═══════════════════════════════════════════════════════════════\",
+  \"  #   TITLE                       STATUS          WORKSPACE\",
+  \"───────────────────────────────────────────────────────────────\",
+  (.tasks[] |
+    \"  \" +
+    ((.id | tostring) | . + (\" \" * (4 - length))) +
+    (.title | .[0:26] | . + (\" \" * (26 - length))) +
+    \"  \" +
+    (.status | ascii_upcase | .[0:14] | . + (\" \" * (14 - length))) +
+    \"  \" +
+    (.workspace // \"—\")
+  ),
+  \"═══════════════════════════════════════════════════════════════\",
+  (
+    \"  Progress: \" +
+    ([.tasks[] | select(.status == \"done\")] | length | tostring) +
+    \"/\" + (.tasks | length | tostring) + \" done\" +
+    \"   \" +
+    ([.tasks[] | select(.status == \"review\")] | length | tostring) +
+    \" in review\" +
+    \"   \" +
+    ([.tasks[] | select(.status == \"in-progress\")] | length | tostring) +
+    \" in progress\"
+  ),
+  \"═══════════════════════════════════════════════════════════════\"
+' $SPRINT_FILE"
