@@ -24,25 +24,27 @@ allowed-tools:
 ## Preamble (run first)
 
 ```bash
-_UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+_GSTACK_BIN="$HOME/.codex/skills/gstack/bin"
+[ -x "$_GSTACK_BIN/gstack-update-check" ] || _GSTACK_BIN="$HOME/.claude/skills/gstack/bin"
+_UPD=$("$_GSTACK_BIN/gstack-update-check" 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
 [ -n "$_UPD" ] && echo "$_UPD" || true
 mkdir -p ~/.gstack/sessions
 touch ~/.gstack/sessions/"$PPID"
 _SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
 find ~/.gstack/sessions -mmin +120 -type f -delete 2>/dev/null || true
-_CONTRIB=$(~/.claude/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || true)
-_PROACTIVE=$(~/.claude/skills/gstack/bin/gstack-config get proactive 2>/dev/null || echo "true")
+_CONTRIB=$("$_GSTACK_BIN/gstack-config" get gstack_contributor 2>/dev/null || true)
+_PROACTIVE=$("$_GSTACK_BIN/gstack-config" get proactive 2>/dev/null || echo "true")
 _PROACTIVE_PROMPTED=$([ -f ~/.gstack/.proactive-prompted ] && echo "yes" || echo "no")
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 echo "BRANCH: $_BRANCH"
 echo "PROACTIVE: $_PROACTIVE"
 echo "PROACTIVE_PROMPTED: $_PROACTIVE_PROMPTED"
-source <(~/.claude/skills/gstack/bin/gstack-repo-mode 2>/dev/null) || true
+source <("$_GSTACK_BIN/gstack-repo-mode" 2>/dev/null) || true
 REPO_MODE=${REPO_MODE:-unknown}
 echo "REPO_MODE: $REPO_MODE"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
-_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
+_TEL=$("$_GSTACK_BIN/gstack-config" get telemetry 2>/dev/null || true)
 _TEL_PROMPTED=$([ -f ~/.gstack/.telemetry-prompted ] && echo "yes" || echo "no")
 _TEL_START=$(date +%s)
 _SESSION_ID="$$-$(date +%s)"
@@ -51,7 +53,7 @@ echo "TEL_PROMPTED: $_TEL_PROMPTED"
 mkdir -p ~/.gstack/analytics
 echo '{"skill":"sprint","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 # zsh-compatible: use find instead of glob to avoid NOMATCH error
-for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do [ -f "$_PF" ] && ~/.claude/skills/gstack/bin/gstack-telemetry-log --event-type skill_run --skill _pending_finalize --outcome unknown --session-id "$_SESSION_ID" 2>/dev/null || true; break; done
+for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do [ -f "$_PF" ] && "$_GSTACK_BIN/gstack-telemetry-log" --event-type skill_run --skill _pending_finalize --outcome unknown --session-id "$_SESSION_ID" 2>/dev/null || true; break; done
 ```
 
 If `PROACTIVE` is `"false"`, do not proactively suggest gstack skills AND do not
@@ -60,7 +62,7 @@ types (e.g., /qa, /ship). If you would have auto-invoked a skill, instead briefl
 "I think /skillname might help here — want me to run it?" and wait for confirmation.
 The user opted out of proactive behavior.
 
-If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.codex/skills/gstack/gstack-upgrade/SKILL.md` (fallback `~/.claude/skills/gstack/gstack-upgrade/SKILL.md`) and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running gstack v{to} (just updated!)" and continue.
 
 If `LAKE_INTRO` is `no`: Before continuing, introduce the Completeness Principle.
 Tell the user: "gstack follows the **Boil the Lake** principle — always do the complete
@@ -86,7 +88,7 @@ Options:
 - A) Help gstack get better! (recommended)
 - B) No thanks
 
-If A: run `~/.claude/skills/gstack/bin/gstack-config set telemetry community`
+If A: run `~/.codex/skills/gstack/bin/gstack-config set telemetry community` (fallback: `~/.claude/skills/gstack/bin/gstack-config set telemetry community`)
 
 If B: ask a follow-up AskUserQuestion:
 
@@ -97,8 +99,8 @@ Options:
 - A) Sure, anonymous is fine
 - B) No thanks, fully off
 
-If B→A: run `~/.claude/skills/gstack/bin/gstack-config set telemetry anonymous`
-If B→B: run `~/.claude/skills/gstack/bin/gstack-config set telemetry off`
+If B→A: run `~/.codex/skills/gstack/bin/gstack-config set telemetry anonymous` (fallback: `~/.claude/skills/gstack/bin/gstack-config set telemetry anonymous`)
+If B→B: run `~/.codex/skills/gstack/bin/gstack-config set telemetry off` (fallback: `~/.claude/skills/gstack/bin/gstack-config set telemetry off`)
 
 Always run:
 ```bash
@@ -118,8 +120,8 @@ Options:
 - A) Keep it on (recommended)
 - B) Turn it off — I'll type /commands myself
 
-If A: run `~/.claude/skills/gstack/bin/gstack-config set proactive true`
-If B: run `~/.claude/skills/gstack/bin/gstack-config set proactive false`
+If A: run `~/.codex/skills/gstack/bin/gstack-config set proactive true` (fallback: `~/.claude/skills/gstack/bin/gstack-config set proactive true`)
+If B: run `~/.codex/skills/gstack/bin/gstack-config set proactive false` (fallback: `~/.claude/skills/gstack/bin/gstack-config set proactive false`)
 
 Always run:
 ```bash
@@ -260,7 +262,9 @@ Run this bash:
 _TEL_END=$(date +%s)
 _TEL_DUR=$(( _TEL_END - _TEL_START ))
 rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
-~/.claude/skills/gstack/bin/gstack-telemetry-log \
+GSTACK_BIN="$HOME/.codex/skills/gstack/bin"
+[ -x "$GSTACK_BIN/gstack-telemetry-log" ] || GSTACK_BIN="$HOME/.claude/skills/gstack/bin"
+"$GSTACK_BIN/gstack-telemetry-log" \
   --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \
   --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
 ```
@@ -279,7 +283,9 @@ When you are in plan mode and about to call ExitPlanMode:
 3. If it does NOT — run this command:
 
 \`\`\`bash
-~/.claude/skills/gstack/bin/gstack-review-read
+GSTACK_BIN="$HOME/.codex/skills/gstack/bin"
+[ -x "$GSTACK_BIN/gstack-review-read" ] || GSTACK_BIN="$HOME/.claude/skills/gstack/bin"
+"$GSTACK_BIN/gstack-review-read"
 \`\`\`
 
 Then write a `## GSTACK REVIEW REPORT` section to the end of the plan file:
@@ -320,7 +326,7 @@ When the user types `/sprint`, run this skill.
 - Conductor installed (https://docs.conductor.build/)
 - `jq` installed (`brew install jq`)
 - `watch` installed for live board (`brew install watch`)
-- gstack sprint-setup script at `~/.claude/skills/gstack/bin/sprint-setup`
+- gstack sprint-setup script at `~/.codex/skills/gstack/bin/sprint-setup` (fallback: `~/.claude/skills/gstack/bin/sprint-setup`)
 
 ---
 
@@ -329,7 +335,11 @@ When the user types `/sprint`, run this skill.
 Run the slug utility to identify the current project:
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+GSTACK_BIN="$HOME/.codex/skills/gstack/bin"
+if [ ! -x "$GSTACK_BIN/gstack-slug" ]; then
+  GSTACK_BIN="$HOME/.claude/skills/gstack/bin"
+fi
+eval "$("$GSTACK_BIN/gstack-slug" 2>/dev/null)"
 echo "SLUG: $SLUG"
 echo "BRANCH: $(git branch --show-current 2>/dev/null || echo unknown)"
 ```
@@ -453,14 +463,14 @@ If it does not exist: create it with `scripts.setup` only (no `scripts.run` defa
 
 The setup script value to set:
 ```
-~/.claude/skills/gstack/bin/sprint-setup $CONDUCTOR_WORKSPACE_NAME $CONDUCTOR_ROOT_PATH
+bash -lc 'GSTACK_BIN="$HOME/.codex/skills/gstack/bin"; [ -x "$GSTACK_BIN/sprint-setup" ] || GSTACK_BIN="$HOME/.claude/skills/gstack/bin"; "$GSTACK_BIN/sprint-setup" "$CONDUCTOR_WORKSPACE_NAME" "$CONDUCTOR_ROOT_PATH"'
 ```
 
 Example merged output:
 ```json
 {
   "scripts": {
-    "setup": "~/.claude/skills/gstack/bin/sprint-setup $CONDUCTOR_WORKSPACE_NAME $CONDUCTOR_ROOT_PATH",
+    "setup": "bash -lc 'GSTACK_BIN=\"$HOME/.codex/skills/gstack/bin\"; [ -x \"$GSTACK_BIN/sprint-setup\" ] || GSTACK_BIN=\"$HOME/.claude/skills/gstack/bin\"; \"$GSTACK_BIN/sprint-setup\" \"$CONDUCTOR_WORKSPACE_NAME\" \"$CONDUCTOR_ROOT_PATH\"'",
     "run": "npm run dev"
   }
 }
@@ -498,7 +508,9 @@ Tip: Install watch if you haven't: brew install watch
 _TEL_END=$(date +%s)
 _TEL_DUR=$(( _TEL_END - _TEL_START ))
 rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
-~/.claude/skills/gstack/bin/gstack-telemetry-log \
+GSTACK_BIN="$HOME/.codex/skills/gstack/bin"
+[ -x "$GSTACK_BIN/gstack-telemetry-log" ] || GSTACK_BIN="$HOME/.claude/skills/gstack/bin"
+"$GSTACK_BIN/gstack-telemetry-log" \
   --skill "sprint" --duration "$_TEL_DUR" --outcome "success" \
   --used-browse "false" --session-id "$_SESSION_ID" 2>/dev/null &
 ```

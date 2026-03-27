@@ -1,6 +1,6 @@
 # claude-skills
 
-Personal Claude Code skills and tools.
+Personal Claude Code and Codex skills and tools.
 
 ## /sprint — Multi-Agent Sprint Coordinator
 
@@ -30,29 +30,37 @@ This now follows the same pattern as upstream gstack: `git clone` + `./setup`.
 1. Install gstack first (if not already installed):
 
 ```bash
-git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack
-cd ~/.claude/skills/gstack && ./setup
+git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.codex/skills/gstack
+cd ~/.codex/skills/gstack && ./setup
 ```
 
 2. Install this sprint package:
 
 ```bash
-git clone --single-branch --depth 1 https://github.com/alon21034/gstack-scrum-skills.git ~/.claude/skills/gstack-sprint
-cd ~/.claude/skills/gstack-sprint && ./setup
+git clone --single-branch --depth 1 https://github.com/alon21034/gstack-scrum-skills.git ~/.codex/skills/gstack-sprint
+cd ~/.codex/skills/gstack-sprint && ./setup
+```
+
+Choose host explicitly when needed:
+
+```bash
+./setup --host codex
+./setup --host claude
+./setup --host auto
 ```
 
 3. Verify files landed in the expected locations:
 
 ```bash
-ls ~/.claude/skills/gstack/bin/sprint-{setup,board,finish}
-ls ~/.claude/skills/gstack/sprint/SKILL.md
-ls ~/.claude/commands/sprint-{task,board,finish}.md
+ls ~/.codex/skills/gstack/bin/sprint-{setup,board,finish}
+ls ~/.codex/skills/gstack/sprint/SKILL.md
+ls ~/.codex/commands/sprint-{task,board,finish}.md
 ```
 
 Optional: use custom install paths (for repo-local gstack installs):
 
 ```bash
-./setup --gstack-root .claude/skills/gstack --commands-dir .claude/commands
+./setup --gstack-root .codex/skills/gstack --commands-dir .codex/commands
 ```
 
 ### Prerequisites

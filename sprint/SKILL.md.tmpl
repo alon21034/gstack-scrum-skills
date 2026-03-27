@@ -35,7 +35,7 @@ When the user types `/sprint`, run this skill.
 - Conductor installed (https://docs.conductor.build/)
 - `jq` installed (`brew install jq`)
 - `watch` installed for live board (`brew install watch`)
-- gstack sprint-setup script at `~/.claude/skills/gstack/bin/sprint-setup`
+- gstack sprint-setup script at `~/.codex/skills/gstack/bin/sprint-setup` (fallback: `~/.claude/skills/gstack/bin/sprint-setup`)
 
 ---
 
@@ -44,7 +44,11 @@ When the user types `/sprint`, run this skill.
 Run the slug utility to identify the current project:
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+GSTACK_BIN="$HOME/.codex/skills/gstack/bin"
+if [ ! -x "$GSTACK_BIN/gstack-slug" ]; then
+  GSTACK_BIN="$HOME/.claude/skills/gstack/bin"
+fi
+eval "$("$GSTACK_BIN/gstack-slug" 2>/dev/null)"
 echo "SLUG: $SLUG"
 echo "BRANCH: $(git branch --show-current 2>/dev/null || echo unknown)"
 ```
@@ -168,14 +172,14 @@ If it does not exist: create it with `scripts.setup` only (no `scripts.run` defa
 
 The setup script value to set:
 ```
-~/.claude/skills/gstack/bin/sprint-setup $CONDUCTOR_WORKSPACE_NAME $CONDUCTOR_ROOT_PATH
+bash -lc 'GSTACK_BIN="$HOME/.codex/skills/gstack/bin"; [ -x "$GSTACK_BIN/sprint-setup" ] || GSTACK_BIN="$HOME/.claude/skills/gstack/bin"; "$GSTACK_BIN/sprint-setup" "$CONDUCTOR_WORKSPACE_NAME" "$CONDUCTOR_ROOT_PATH"'
 ```
 
 Example merged output:
 ```json
 {
   "scripts": {
-    "setup": "~/.claude/skills/gstack/bin/sprint-setup $CONDUCTOR_WORKSPACE_NAME $CONDUCTOR_ROOT_PATH",
+    "setup": "bash -lc 'GSTACK_BIN=\"$HOME/.codex/skills/gstack/bin\"; [ -x \"$GSTACK_BIN/sprint-setup\" ] || GSTACK_BIN=\"$HOME/.claude/skills/gstack/bin\"; \"$GSTACK_BIN/sprint-setup\" \"$CONDUCTOR_WORKSPACE_NAME\" \"$CONDUCTOR_ROOT_PATH\"'",
     "run": "npm run dev"
   }
 }
@@ -213,7 +217,9 @@ Tip: Install watch if you haven't: brew install watch
 _TEL_END=$(date +%s)
 _TEL_DUR=$(( _TEL_END - _TEL_START ))
 rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
-~/.claude/skills/gstack/bin/gstack-telemetry-log \
+GSTACK_BIN="$HOME/.codex/skills/gstack/bin"
+[ -x "$GSTACK_BIN/gstack-telemetry-log" ] || GSTACK_BIN="$HOME/.claude/skills/gstack/bin"
+"$GSTACK_BIN/gstack-telemetry-log" \
   --skill "sprint" --duration "$_TEL_DUR" --outcome "success" \
   --used-browse "false" --session-id "$_SESSION_ID" 2>/dev/null &
 ```
