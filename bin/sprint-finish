@@ -1,0 +1,247 @@
+#!/usr/bin/env bash
+# sprint-finish — Resolve non-terminal sprint tasks and close the sprint.
+# Usage: sprint-finish
+#
+# Walks every non-terminal task (status not in done/backlog/deleted),
+# prompts for resolution (done/backlog/deleted), and closes the sprint
+# once all tasks are terminal.
+
+set -euo pipefail
+
+if [ "$#" -ne 0 ]; then
+  echo "Usage: sprint-finish" >&2
+  exit 1
+fi
+
+command -v jq >/dev/null 2>&1 || {
+  echo "ERROR: jq is required. Install with: brew install jq" >&2
+  exit 1
+}
+
+resolve_sprint_file() {
+  if [ -n "${CONDUCTOR_ROOT_PATH:-}" ] && [ -f "$CONDUCTOR_ROOT_PATH/.gstack-sprint.json" ]; then
+    echo "$CONDUCTOR_ROOT_PATH/.gstack-sprint.json"
+    return 0
+  fi
+
+  if [ -f ".gstack-sprint.json" ]; then
+    echo ".gstack-sprint.json"
+    return 0
+  fi
+
+  if [ -n "${CONDUCTOR_ROOT_PATH:-}" ]; then
+    echo "ERROR: No sprint file found. Checked $CONDUCTOR_ROOT_PATH/.gstack-sprint.json and ./.gstack-sprint.json" >&2
+  else
+    echo "ERROR: No sprint file found. Checked ./.gstack-sprint.json" >&2
+  fi
+  exit 1
+}
+
+SPRINT_FILE="$(resolve_sprint_file)"
+
+[ -f "$SPRINT_FILE" ] || {
+  echo "ERROR: Sprint file not found: $SPRINT_FILE" >&2
+  exit 1
+}
+
+jq empty "$SPRINT_FILE" 2>/dev/null || {
+  echo "ERROR: Sprint file is not valid JSON: $SPRINT_FILE" >&2
+  exit 1
+}
+
+STATUS="$(jq -r '.sprint.status // "unknown"' "$SPRINT_FILE")"
+TOPIC="$(jq -r '.sprint.topic // "(untitled sprint)"' "$SPRINT_FILE")"
+
+print_counts() {
+  local done backlog deleted review in_progress pending total
+  done="$(jq '[.tasks[] | select(.status == "done")] | length' "$SPRINT_FILE")"
+  backlog="$(jq '[.tasks[] | select(.status == "backlog")] | length' "$SPRINT_FILE")"
+  deleted="$(jq '[.tasks[] | select(.status == "deleted")] | length' "$SPRINT_FILE")"
+  review="$(jq '[.tasks[] | select(.status == "review")] | length' "$SPRINT_FILE")"
+  in_progress="$(jq '[.tasks[] | select(.status == "in-progress")] | length' "$SPRINT_FILE")"
+  pending="$(jq '[.tasks[] | select(.status == "pending")] | length' "$SPRINT_FILE")"
+  total="$(jq '.tasks | length' "$SPRINT_FILE")"
+
+  echo "Sprint progress: $done/$total done   $backlog backlog   $deleted deleted   $review in review   $in_progress in progress   $pending pending"
+}
+
+if [ "$STATUS" = "complete" ]; then
+  echo "Sprint already complete: $TOPIC"
+  print_counts
+  exit 0
+fi
+
+if [ "$STATUS" != "active" ]; then
+  echo "ERROR: Sprint is not active (status=$STATUS)." >&2
+  exit 1
+fi
+
+update_task_status() {
+  local task_id="$1"
+  local target_status="$2"
+  local ts
+
+  ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+  case "$target_status" in
+    done)
+      jq --argjson id "$task_id" --arg ts "$ts" \
+        '(.tasks[] | select(.id == $id)).status = "done" |
+         (.tasks[] | select(.id == $id)).completed_at = $ts' \
+        "$SPRINT_FILE" > "$SPRINT_FILE.tmp"
+      ;;
+    backlog)
+      jq --argjson id "$task_id" --arg ts "$ts" \
+        '(.tasks[] | select(.id == $id)).status = "backlog" |
+         (.tasks[] | select(.id == $id)).backlogged_at = $ts' \
+        "$SPRINT_FILE" > "$SPRINT_FILE.tmp"
+      ;;
+    deleted)
+      jq --argjson id "$task_id" --arg ts "$ts" \
+        '(.tasks[] | select(.id == $id)).status = "deleted" |
+         (.tasks[] | select(.id == $id)).deleted_at = $ts' \
+        "$SPRINT_FILE" > "$SPRINT_FILE.tmp"
+      ;;
+    *)
+      echo "ERROR: Unsupported target status: $target_status" >&2
+      return 1
+      ;;
+  esac
+
+  mv "$SPRINT_FILE.tmp" "$SPRINT_FILE"
+}
+
+prompt_yes_no() {
+  local prompt="$1"
+  local answer
+
+  while true; do
+    printf "%s" "$prompt"
+    if ! IFS= read -r answer; then
+      return 1
+    fi
+
+    answer="$(echo "$answer" | tr '[:upper:]' '[:lower:]' | xargs)"
+    case "$answer" in
+      yes|y)
+        return 0
+        ;;
+      no|n)
+        return 2
+        ;;
+      *)
+        echo "Please answer yes or no."
+        ;;
+    esac
+  done
+}
+
+ABORTED=0
+
+TASK_IDS=()
+while IFS= read -r task_id; do
+  if [ -n "$task_id" ]; then
+    TASK_IDS+=("$task_id")
+  fi
+done < <(jq -r '
+  .tasks
+  | map(select(.status != "done" and .status != "backlog" and .status != "deleted"))
+  | sort_by(.id)
+  | .[].id
+' "$SPRINT_FILE")
+
+for task_id in "${TASK_IDS[@]}"; do
+  task_title="$(jq -r --argjson id "$task_id" '.tasks[] | select(.id == $id) | .title' "$SPRINT_FILE")"
+  task_status="$(jq -r --argjson id "$task_id" '.tasks[] | select(.id == $id) | .status' "$SPRINT_FILE")"
+  task_workspace="$(jq -r --argjson id "$task_id" '.tasks[] | select(.id == $id) | (.workspace // "—")' "$SPRINT_FILE")"
+  task_branch="$(jq -r --argjson id "$task_id" '.tasks[] | select(.id == $id) | (.branch // "—")' "$SPRINT_FILE")"
+
+  if [ "$task_status" = "done" ] || [ "$task_status" = "backlog" ] || [ "$task_status" = "deleted" ]; then
+    continue
+  fi
+
+  echo
+  echo "Task $task_id: $task_title"
+  echo "  Current status: $task_status"
+  echo "  Workspace: $task_workspace"
+  echo "  Branch: $task_branch"
+
+  while true; do
+    printf "Resolve task %s as [done/backlog/deleted] (or 'abort'): " "$task_id"
+    if ! IFS= read -r action; then
+      ABORTED=1
+      break
+    fi
+
+    action="$(echo "$action" | tr '[:upper:]' '[:lower:]' | xargs)"
+
+    case "$action" in
+      done)
+        if [ "$task_status" = "pending" ] || [ "$task_status" = "in-progress" ]; then
+          if prompt_yes_no "This bypasses review. Confirm mark done? (yes/no): "; then
+            :
+          else
+            rc=$?
+            if [ "$rc" -eq 1 ]; then
+              ABORTED=1
+              break
+            fi
+            continue
+          fi
+        fi
+
+        update_task_status "$task_id" "done"
+        echo "Updated task $task_id -> done"
+        break
+        ;;
+      backlog)
+        update_task_status "$task_id" "backlog"
+        echo "Updated task $task_id -> backlog"
+        break
+        ;;
+      deleted)
+        update_task_status "$task_id" "deleted"
+        echo "Updated task $task_id -> deleted"
+        break
+        ;;
+      abort)
+        ABORTED=1
+        break
+        ;;
+      *)
+        echo "Invalid choice. Use done, backlog, deleted, or abort."
+        ;;
+    esac
+  done
+
+  if [ "$ABORTED" -eq 1 ]; then
+    break
+  fi
+done
+
+UNRESOLVED_COUNT="$(jq '[.tasks[] | select(.status != "done" and .status != "backlog" and .status != "deleted")] | length' "$SPRINT_FILE")"
+
+if [ "$UNRESOLVED_COUNT" -gt 0 ]; then
+  echo
+  echo "Sprint remains active. Unresolved tasks:"
+  jq -r '.tasks[]
+    | select(.status != "done" and .status != "backlog" and .status != "deleted")
+    | "  Task \(.id): \(.title) [\(.status)]"' "$SPRINT_FILE"
+
+  if [ "$ABORTED" -eq 1 ]; then
+    echo "Aborted before resolving all tasks."
+  fi
+
+  exit 1
+fi
+
+CLOSED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+jq --arg ts "$CLOSED_AT" '
+  .sprint.status = "complete" |
+  .sprint.closed_at = (.sprint.closed_at // $ts)
+' "$SPRINT_FILE" > "$SPRINT_FILE.tmp"
+mv "$SPRINT_FILE.tmp" "$SPRINT_FILE"
+
+echo
+echo "Sprint complete: $TOPIC"
+print_counts

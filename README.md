@@ -17,11 +17,11 @@ Lightweight Scrum coordination layer for parallel AI development with [Conductor
 | `sprint/SKILL.md` | Generated skill (don't edit) |
 | `bin/sprint-setup` | Conductor workspace bootstrap — claims task, creates branch |
 | `bin/sprint-board` | Live terminal board (`watch -n 3` + `jq`) |
-| `bin/sprint-approve` | Mark task done after review |
+| `bin/sprint-finish` | Resolve remaining tasks and close sprint |
 | `commands/sprint.md` | `/sprint` slash command (entry point) |
 | `commands/sprint-task.md` | `/sprint-task` slash command (manual claim + approval gate) |
 | `commands/sprint-board.md` | `/sprint-board` slash command (one-shot snapshot) |
-| `commands/sprint-approve.md` | `/sprint-approve` slash command |
+| `commands/sprint-finish.md` | `/sprint-finish` slash command |
 
 ### Install
 
@@ -44,9 +44,9 @@ cd ~/.claude/skills/gstack-sprint && ./setup
 3. Verify files landed in the expected locations:
 
 ```bash
-ls ~/.claude/skills/gstack/bin/sprint-{setup,board,approve}
+ls ~/.claude/skills/gstack/bin/sprint-{setup,board,finish}
 ls ~/.claude/skills/gstack/sprint/SKILL.md
-ls ~/.claude/commands/sprint-{task,board,approve}.md
+ls ~/.claude/commands/sprint-{task,board,finish}.md
 ```
 
 Optional: use custom install paths (for repo-local gstack installs):
@@ -67,6 +67,6 @@ Optional: use custom install paths (for repo-local gstack installs):
 1. In any CC session in your project: `/sprint`
 2. Describe your sprint topic (or use an existing `/autoplan` output)
 3. Open Conductor, press ⌘+K once per task
-4. In each workspace, run `/sprint-task` to claim/view a task, then approve before implementation starts
+4. In each workspace, run `/sprint-task` to claim/view a task, then implement after explicit approval
 5. Watch progress: `sprint-board .gstack-sprint.json`
-6. When a task shows REVIEW: `sprint-approve <task-id>`
+6. When implementation/review cycle is done, run: `sprint-finish`

@@ -83,10 +83,10 @@ REQUIRED_FILES=(
   "sprint/SKILL.md.tmpl"
   "bin/sprint-setup"
   "bin/sprint-board"
-  "bin/sprint-approve"
+  "bin/sprint-finish"
   "commands/sprint-task.md"
   "commands/sprint-board.md"
-  "commands/sprint-approve.md"
+  "commands/sprint-finish.md"
 )
 
 for rel in "${REQUIRED_FILES[@]}"; do
@@ -113,10 +113,10 @@ run install -m 0644 "$SCRIPT_DIR/sprint/SKILL.md.tmpl" "$GSTACK_ROOT/sprint/SKIL
 
 run install -m 0755 "$SCRIPT_DIR/bin/sprint-setup" "$GSTACK_ROOT/bin/sprint-setup"
 run install -m 0755 "$SCRIPT_DIR/bin/sprint-board" "$GSTACK_ROOT/bin/sprint-board"
-run install -m 0755 "$SCRIPT_DIR/bin/sprint-approve" "$GSTACK_ROOT/bin/sprint-approve"
+run install -m 0755 "$SCRIPT_DIR/bin/sprint-finish" "$GSTACK_ROOT/bin/sprint-finish"
 
 run install -m 0644 "$SCRIPT_DIR/commands/sprint-board.md" "$COMMANDS_DIR/sprint-board.md"
-run install -m 0644 "$SCRIPT_DIR/commands/sprint-approve.md" "$COMMANDS_DIR/sprint-approve.md"
+run install -m 0644 "$SCRIPT_DIR/commands/sprint-finish.md" "$COMMANDS_DIR/sprint-finish.md"
 run install -m 0644 "$SCRIPT_DIR/commands/sprint-task.md" "$COMMANDS_DIR/sprint-task.md"
 
 if $DRY_RUN; then
@@ -132,7 +132,7 @@ Installed into:
   commands:    $COMMANDS_DIR
 
 Quick checks:
-  ls $GSTACK_ROOT/bin/sprint-{setup,board,approve}
+  ls $GSTACK_ROOT/bin/sprint-{setup,board,finish}
   ls $GSTACK_ROOT/sprint/SKILL.md
-  ls $COMMANDS_DIR/sprint-{task,board,approve}.md
+  ls $COMMANDS_DIR/sprint-{task,board,finish}.md
 EOF

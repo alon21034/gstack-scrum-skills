@@ -59,6 +59,12 @@ watch -n 3 "jq -r '
     ([.tasks[] | select(.status == \"done\")] | length | tostring) +
     \"/\" + (.tasks | length | tostring) + \" done\" +
     \"   \" +
+    ([.tasks[] | select(.status == \"backlog\")] | length | tostring) +
+    \" backlog\" +
+    \"   \" +
+    ([.tasks[] | select(.status == \"deleted\")] | length | tostring) +
+    \" deleted\" +
+    \"   \" +
     ([.tasks[] | select(.status == \"review\")] | length | tostring) +
     \" in review\" +
     \"   \" +

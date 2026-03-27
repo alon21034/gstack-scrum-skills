@@ -14,7 +14,7 @@ Format the output as:
   2   Login UI                     IN PROGRESS     workspace-2
   3   Session management           PENDING         —
 ═══════════════════════════════════════════════════════════════
-  Progress: {done}/{total} done   {review} in review   {inprogress} in progress
+  Progress: {done}/{total} done   {backlog} backlog   {deleted} deleted   {review} in review   {inprogress} in progress
 ═══════════════════════════════════════════════════════════════
 ```
 

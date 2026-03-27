@@ -138,7 +138,9 @@ Write the sprint file:
       "workspace": null,
       "branch": null,
       "started_at": null,
-      "completed_at": null
+      "completed_at": null,
+      "backlogged_at": null,
+      "deleted_at": null
     }
   ]
 }
@@ -146,6 +148,7 @@ Write the sprint file:
 
 For tasks with dependencies, add the field: `"depends_on": [dep_id]`
 For tasks without dependencies, omit `depends_on` entirely.
+Terminal task statuses are `done`, `backlog`, and `deleted`. Sprint closure also records `sprint.closed_at`.
 
 Validate the written JSON with `jq empty "$SPRINT_FILE"` before proceeding.
 
@@ -197,7 +200,7 @@ Next steps:
   2. Press ⌘+K {N} times (once per task)
      Each workspace will auto-claim a task and start executing.
   3. Watch the board: sprint-board {sprint-file-path}
-  4. When a task shows REVIEW, run: sprint-approve {task-id}
+  4. When implementation/review is complete, run: sprint-finish
 
 Tip: Install watch if you haven't: brew install watch
 ```

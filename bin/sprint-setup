@@ -168,7 +168,7 @@ Instructions:
 6. When implementation is complete, update the task status to "review":
    jq --argjson id ${TASK_ID} '(.tasks[] | select(.id == \$id)).status = "review"' .gstack-sprint.json > .gstack-sprint.json.tmp && mv .gstack-sprint.json.tmp .gstack-sprint.json
 7. Summarize what you changed and why.
-8. Do NOT merge or create a PR — the human reviewer will run sprint-approve ${TASK_ID} when ready.
+8. Do NOT merge or create a PR — the human reviewer will run sprint-finish when ready to close the sprint.
 SPRINT_TASK_EOF
 
 echo "Wrote /sprint-task slash command to $COMMANDS_DIR/sprint-task.md"
