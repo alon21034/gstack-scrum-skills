@@ -12,6 +12,7 @@ Lightweight Scrum coordination layer for parallel AI development with [Conductor
 
 | File | Purpose |
 |------|---------|
+| `setup` | One-command installer (`./setup`) for skill + scripts + slash commands |
 | `sprint/SKILL.md.tmpl` | Skill source (edit this) |
 | `sprint/SKILL.md` | Generated skill (don't edit) |
 | `bin/sprint-setup` | Conductor workspace bootstrap — claims task, creates branch |
@@ -22,24 +23,39 @@ Lightweight Scrum coordination layer for parallel AI development with [Conductor
 
 ### Install
 
+This now follows the same pattern as upstream gstack: `git clone` + `./setup`.
+
+1. Install gstack first (if not already installed):
+
 ```bash
-# Copy skill to gstack
-cp sprint/SKILL.md ~/.claude/skills/gstack/sprint/SKILL.md
-cp sprint/SKILL.md.tmpl ~/.claude/skills/gstack/sprint/SKILL.md.tmpl
+git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack
+cd ~/.claude/skills/gstack && ./setup
+```
 
-# Copy scripts
-cp bin/sprint-setup ~/.claude/skills/gstack/bin/sprint-setup
-cp bin/sprint-board ~/.claude/skills/gstack/bin/sprint-board
-cp bin/sprint-approve ~/.claude/skills/gstack/bin/sprint-approve
-chmod +x ~/.claude/skills/gstack/bin/sprint-{setup,board,approve}
+2. Install this sprint package:
 
-# Copy slash commands
-cp commands/sprint-board.md ~/.claude/commands/sprint-board.md
-cp commands/sprint-approve.md ~/.claude/commands/sprint-approve.md
+```bash
+git clone --single-branch --depth 1 https://github.com/alon21034/gstack-scrum-skills.git ~/.claude/skills/gstack-sprint
+cd ~/.claude/skills/gstack-sprint && ./setup
+```
+
+3. Verify files landed in the expected locations:
+
+```bash
+ls ~/.claude/skills/gstack/bin/sprint-{setup,board,approve}
+ls ~/.claude/skills/gstack/sprint/SKILL.md
+ls ~/.claude/commands/sprint-{board,approve}.md
+```
+
+Optional: use custom install paths (for repo-local gstack installs):
+
+```bash
+./setup --gstack-root .claude/skills/gstack --commands-dir .claude/commands
 ```
 
 ### Prerequisites
 
+- [gstack](https://github.com/garrytan/gstack) installed and set up (`./setup`)
 - [Conductor](https://docs.conductor.build/) (Mac app)
 - `jq` — `brew install jq`
 - `watch` — `brew install watch`

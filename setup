@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+# setup — install sprint skill and helper scripts into an existing gstack install
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+GSTACK_ROOT="${GSTACK_ROOT:-$HOME/.claude/skills/gstack}"
+COMMANDS_DIR="${COMMANDS_DIR:-$HOME/.claude/commands}"
+DRY_RUN=false
+
+usage() {
+  cat <<'EOF'
+Usage: ./setup [options]
+
+Options:
+  --gstack-root <path>   gstack root directory (default: ~/.claude/skills/gstack)
+  --commands-dir <path>  Claude commands directory (default: ~/.claude/commands)
+  --dry-run              Print actions without writing files
+  -h, --help             Show this help
+
+Environment overrides:
+  GSTACK_ROOT            same as --gstack-root
+  COMMANDS_DIR           same as --commands-dir
+EOF
+}
+
+expand_path() {
+  local path="$1"
+  if [[ "$path" == "~/"* ]]; then
+    printf "%s/%s\n" "$HOME" "${path#~/}"
+  else
+    printf "%s\n" "$path"
+  fi
+}
+
+run() {
+  if $DRY_RUN; then
+    printf "[dry-run] %q" "$1"
+    shift
+    for arg in "$@"; do
+      printf " %q" "$arg"
+    done
+    printf "\n"
+    return 0
+  fi
+  "$@"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --gstack-root)
+      [[ $# -ge 2 ]] || { echo "ERROR: --gstack-root requires a value" >&2; exit 1; }
+      GSTACK_ROOT="$2"
+      shift 2
+      ;;
+    --commands-dir)
+      [[ $# -ge 2 ]] || { echo "ERROR: --commands-dir requires a value" >&2; exit 1; }
+      COMMANDS_DIR="$2"
+      shift 2
+      ;;
+    --dry-run)
+      DRY_RUN=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "ERROR: unknown option: $1" >&2
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+GSTACK_ROOT="$(expand_path "$GSTACK_ROOT")"
+COMMANDS_DIR="$(expand_path "$COMMANDS_DIR")"
+
+REQUIRED_FILES=(
+  "sprint/SKILL.md"
+  "sprint/SKILL.md.tmpl"
+  "bin/sprint-setup"
+  "bin/sprint-board"
+  "bin/sprint-approve"
+  "commands/sprint-board.md"
+  "commands/sprint-approve.md"
+)
+
+for rel in "${REQUIRED_FILES[@]}"; do
+  if [[ ! -f "$SCRIPT_DIR/$rel" ]]; then
+    echo "ERROR: missing required file: $SCRIPT_DIR/$rel" >&2
+    exit 1
+  fi
+done
+
+if [[ ! -d "$GSTACK_ROOT" ]]; then
+  cat >&2 <<EOF
+ERROR: gstack root not found: $GSTACK_ROOT
+Install gstack first, for example:
+  git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack
+  cd ~/.claude/skills/gstack && ./setup
+EOF
+  exit 1
+fi
+
+run mkdir -p "$GSTACK_ROOT/sprint" "$GSTACK_ROOT/bin" "$COMMANDS_DIR"
+
+run install -m 0644 "$SCRIPT_DIR/sprint/SKILL.md" "$GSTACK_ROOT/sprint/SKILL.md"
+run install -m 0644 "$SCRIPT_DIR/sprint/SKILL.md.tmpl" "$GSTACK_ROOT/sprint/SKILL.md.tmpl"
+
+run install -m 0755 "$SCRIPT_DIR/bin/sprint-setup" "$GSTACK_ROOT/bin/sprint-setup"
+run install -m 0755 "$SCRIPT_DIR/bin/sprint-board" "$GSTACK_ROOT/bin/sprint-board"
+run install -m 0755 "$SCRIPT_DIR/bin/sprint-approve" "$GSTACK_ROOT/bin/sprint-approve"
+
+run install -m 0644 "$SCRIPT_DIR/commands/sprint-board.md" "$COMMANDS_DIR/sprint-board.md"
+run install -m 0644 "$SCRIPT_DIR/commands/sprint-approve.md" "$COMMANDS_DIR/sprint-approve.md"
+
+if $DRY_RUN; then
+  echo "Dry run complete."
+  exit 0
+fi
+
+cat <<EOF
+Install complete.
+
+Installed into:
+  gstack root: $GSTACK_ROOT
+  commands:    $COMMANDS_DIR
+
+Quick checks:
+  ls $GSTACK_ROOT/bin/sprint-{setup,board,approve}
+  ls $GSTACK_ROOT/sprint/SKILL.md
+  ls $COMMANDS_DIR/sprint-{board,approve}.md
+EOF
