@@ -6,7 +6,7 @@ Personal Claude Code and Codex skills and tools.
 
 Lightweight Scrum coordination layer for parallel AI development with [Conductor](https://docs.conductor.build/).
 
-**The idea:** type a sprint topic, get a sprint board, press ⌘+K in Conductor — each workspace auto-claims a task and starts executing. You only think about what to build next.
+**The idea:** type a sprint topic, get a sprint board, press ⌘+K in Conductor, and each workspace can auto-claim a task and start executing. You only think about what to build next.
 
 ### Purpose
 
@@ -22,8 +22,10 @@ Lightweight Scrum coordination layer for parallel AI development with [Conductor
 
 1. In any CC session in your project: `/sprint`
 2. Describe your sprint topic (or use an existing `/autoplan` output)
-3. Open Conductor, press ⌘+K once per task
-4. In each workspace, run `/sprint-task` to claim/view a task, then implement after explicit approval
+3. Choose task-claim mode:
+   - Auto-claim (recommended): run this repo's `./setup` first, then make sure `conductor.json` has `scripts.setup` wired to `sprint-setup` (the `/sprint` command writes this). After that, press ⌘+K once per task and each workspace auto-claims.
+   - Manual claim: if `scripts.setup` is not configured for `sprint-setup`, open each workspace and run `/sprint-task` to claim/view a task.
+4. Implement after explicit approval
 5. Watch progress: `sprint-board .gstack-sprint.json`
 6. When implementation/review cycle is done, run: `sprint-finish`
 
