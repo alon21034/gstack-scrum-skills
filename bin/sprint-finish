@@ -19,20 +19,20 @@ command -v jq >/dev/null 2>&1 || {
 }
 
 resolve_sprint_file() {
-  if [ -n "${CONDUCTOR_ROOT_PATH:-}" ] && [ -f "$CONDUCTOR_ROOT_PATH/.gstack-sprint.json" ]; then
-    echo "$CONDUCTOR_ROOT_PATH/.gstack-sprint.json"
+  if [ -n "${CONDUCTOR_ROOT_PATH:-}" ] && [ -f "$CONDUCTOR_ROOT_PATH/.sprint.json" ]; then
+    echo "$CONDUCTOR_ROOT_PATH/.sprint.json"
     return 0
   fi
 
-  if [ -f ".gstack-sprint.json" ]; then
-    echo ".gstack-sprint.json"
+  if [ -f ".sprint.json" ]; then
+    echo ".sprint.json"
     return 0
   fi
 
   if [ -n "${CONDUCTOR_ROOT_PATH:-}" ]; then
-    echo "ERROR: No sprint file found. Checked $CONDUCTOR_ROOT_PATH/.gstack-sprint.json and ./.gstack-sprint.json" >&2
+    echo "ERROR: No sprint file found. Checked $CONDUCTOR_ROOT_PATH/.sprint.json and ./.sprint.json" >&2
   else
-    echo "ERROR: No sprint file found. Checked ./.gstack-sprint.json" >&2
+    echo "ERROR: No sprint file found. Checked ./.sprint.json" >&2
   fi
   exit 1
 }

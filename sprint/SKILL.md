@@ -4,7 +4,7 @@ preamble-tier: 2
 version: 1.0.0
 description: |
   Lightweight Scrum coordination for multi-agent development with Conductor.
-  Decomposes a sprint topic into tasks, writes .gstack-sprint.json, and configures
+  Decomposes a sprint topic into tasks, writes .sprint.json, and configures
   conductor.json so each Conductor workspace auto-claims and executes a task.
   Use when starting a new sprint, parallelizing work across agents, or when asked
   to "start a sprint", "run parallel agents", or "set up multi-agent execution".
@@ -396,7 +396,7 @@ Wait for confirmation before writing any files.
 
 ---
 
-## Step 3: Write .gstack-sprint.json
+## Step 3: Write .sprint.json
 
 Determine the sprint file location:
 
@@ -404,7 +404,7 @@ Determine the sprint file location:
 # Prefer $CONDUCTOR_ROOT_PATH (shared across all workspaces)
 # Fall back to git repo root if running outside Conductor
 SPRINT_DIR="${CONDUCTOR_ROOT_PATH:-$(git rev-parse --show-toplevel 2>/dev/null)}"
-SPRINT_FILE="$SPRINT_DIR/.gstack-sprint.json"
+SPRINT_FILE="$SPRINT_DIR/.sprint.json"
 echo "SPRINT_FILE: $SPRINT_FILE"
 ```
 

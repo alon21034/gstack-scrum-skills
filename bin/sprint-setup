@@ -28,9 +28,13 @@ command -v jq >/dev/null 2>&1 || {
   echo "ERROR: jq is required. Install with: brew install jq" >&2
   exit 1
 }
+command -v flock >/dev/null 2>&1 || {
+  echo "ERROR: flock is required for task locking. Install with Homebrew and ensure it is on PATH." >&2
+  exit 1
+}
 
-SPRINT_FILE="$ROOT_PATH/.gstack-sprint.json"
-LOCK_FILE="$ROOT_PATH/.gstack-sprint.lock"
+SPRINT_FILE="$ROOT_PATH/.sprint.json"
+LOCK_FILE="$ROOT_PATH/.sprint.lock"
 
 # Validate sprint file exists and is valid JSON
 [ -f "$SPRINT_FILE" ] || {
@@ -172,7 +176,7 @@ fi
 for COMMANDS_DIR in "${COMMANDS_TARGETS[@]}"; do
   mkdir -p "$COMMANDS_DIR"
   cat > "$COMMANDS_DIR/sprint-task.md" << SPRINT_TASK_EOF
-Read the task assigned to this workspace from .gstack-sprint.json (task id: ${TASK_ID}).
+Read the task assigned to this workspace from .sprint.json (task id: ${TASK_ID}).
 Your sprint: ${SPRINT_TOPIC}
 Your task: ${TASK_TITLE}
 
@@ -180,7 +184,7 @@ Full task description:
 ${TASK_DESC}
 
 Instructions:
-1. Read .gstack-sprint.json to understand the full sprint context and what other agents are working on.
+1. Read .sprint.json to understand the full sprint context and what other agents are working on.
 2. First, show the user a short task brief:
    - sprint topic
    - task id and title
@@ -191,7 +195,7 @@ Instructions:
 4. Do NOT implement anything until the user clearly approves.
 5. After approval, implement only this task's scope.
 6. When implementation is complete, update the task status to "review":
-   jq --argjson id ${TASK_ID} '(.tasks[] | select(.id == \$id)).status = "review"' .gstack-sprint.json > .gstack-sprint.json.tmp && mv .gstack-sprint.json.tmp .gstack-sprint.json
+   jq --argjson id ${TASK_ID} '(.tasks[] | select(.id == \$id)).status = "review"' .sprint.json > .sprint.json.tmp && mv .sprint.json.tmp .sprint.json
 7. Summarize what you changed and why.
 8. Do NOT merge or create a PR — the human reviewer will run sprint-finish when ready to close the sprint.
 SPRINT_TASK_EOF

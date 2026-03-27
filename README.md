@@ -1,6 +1,10 @@
-# claude-skills
+# gstack-scrum-skills
 
 Personal Claude Code and Codex skills and tools.
+
+## Compatibility
+
+Install paths are deterministic and host-based.
 
 ## /sprint — Multi-Agent Sprint Coordinator
 
@@ -18,43 +22,47 @@ Lightweight Scrum coordination layer for parallel AI development with [Conductor
 - Expose live progress and blockers in a single terminal board.
 - Close the sprint cleanly by resolving leftover tasks and preserving state.
 
+### Skill Chart
+
+| Skill/Command | Purpose | Typical Use |
+|---|---|---|
+| `/sprint` | Create sprint plan and write `.sprint.json` | Start a new parallel sprint |
+| `/sprint-task` | Claim/show one workspace task with approval gate | Manual task claiming or task review |
+| `/sprint-board` | Snapshot sprint progress table | Quick status check across workspaces |
+| `/sprint-finish` | Resolve remaining tasks and close sprint | End sprint and finalize statuses |
+
 ### Usage
 
 1. In any CC session in your project: `/sprint`
-2. Describe your sprint topic (or use an existing `/autoplan` output)
-3. Choose task-claim mode:
+2. Describe your sprint topic (or provide an existing plan/task list)
+3. Task generation behavior:
+   - If gstack `/autoplan` is available, sprint tasks are derived from that output.
+   - If gstack is not available, tasks are generated locally from your topic.
+4. Choose task-claim mode:
    - Auto-claim (recommended): run this repo's `./setup` first, then make sure `conductor.json` has `scripts.setup` wired to `sprint-setup` (the `/sprint` command writes this). After that, press ⌘+K once per task and each workspace auto-claims.
    - Manual claim: if `scripts.setup` is not configured for `sprint-setup`, open each workspace and run `/sprint-task` to claim/view a task.
-4. Implement after explicit approval
-5. Watch progress: `sprint-board .gstack-sprint.json`
-6. When implementation/review cycle is done, run: `sprint-finish`
+5. Implement after explicit approval
+6. Watch progress: `sprint-board .sprint.json`
+7. When implementation/review cycle is done, run: `sprint-finish`
 
 ### Prerequisites
 
-- [gstack](https://github.com/garrytan/gstack) installed and set up (`./setup`)
 - [Conductor](https://docs.conductor.build/) (Mac app)
+- [gstack](https://github.com/garrytan/gstack) (optional, used for `/autoplan`-based task generation)
 - `jq` — `brew install jq`
+- `flock` — `brew install flock`
 - `watch` — `brew install watch`
 
 ### Install
 
-This now follows the same pattern as upstream gstack: `git clone` + `./setup`.
-
-1. Install gstack first (if not already installed):
+1. Install this sprint package:
 
 ```bash
-git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.codex/skills/gstack
-cd ~/.codex/skills/gstack && ./setup
+git clone --single-branch --depth 1 https://github.com/alon21034/gstack-scrum-skills.git ~/.codex/skills/sprint
+cd ~/.codex/skills/sprint && ./setup
 ```
 
-2. Install this sprint package:
-
-```bash
-git clone --single-branch --depth 1 https://github.com/alon21034/gstack-scrum-skills.git ~/.codex/skills/gstack-sprint
-cd ~/.codex/skills/gstack-sprint && ./setup
-```
-
-Choose host explicitly when needed:
+2. Choose host explicitly when needed:
 
 ```bash
 ./setup --host codex
@@ -65,28 +73,13 @@ Choose host explicitly when needed:
 3. Verify files landed in the expected locations:
 
 ```bash
-ls ~/.codex/skills/gstack/bin/sprint-{setup,board,finish}
-ls ~/.codex/skills/gstack/sprint/SKILL.md
-ls ~/.codex/commands/sprint-{task,board,finish}.md
+ls ~/.codex/commands/sprint{,-task,-board,-finish}.md
+ls ~/.codex/skills/sprint/bin/sprint-{setup,board,finish}
+ls ~/.codex/skills/sprint/sprint/SKILL.md
 ```
 
-Optional: use custom install paths (for repo-local gstack installs):
+Optional: use custom install paths:
 
 ```bash
-./setup --gstack-root .codex/skills/gstack --commands-dir .codex/commands
+./setup --skill-root .codex/skills/sprint --commands-dir .codex/commands
 ```
-
-### Files
-
-| File | Purpose |
-|------|---------|
-| `setup` | One-command installer (`./setup`) for skill + scripts + slash commands |
-| `sprint/SKILL.md.tmpl` | Skill source (edit this) |
-| `sprint/SKILL.md` | Generated skill (don't edit) |
-| `bin/sprint-setup` | Conductor workspace bootstrap — claims task, creates branch |
-| `bin/sprint-board` | Live terminal board (`watch -n 3` + `jq`) |
-| `bin/sprint-finish` | Resolve remaining tasks and close sprint |
-| `commands/sprint.md` | `/sprint` slash command (entry point) |
-| `commands/sprint-task.md` | `/sprint-task` slash command (manual claim + approval gate) |
-| `commands/sprint-board.md` | `/sprint-board` slash command (one-shot snapshot) |
-| `commands/sprint-finish.md` | `/sprint-finish` slash command |

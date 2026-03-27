@@ -8,10 +8,14 @@ PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 ROOT="${CONDUCTOR_ROOT_PATH:-$(git rev-parse --show-toplevel)}"
 
-if [ -x /Users/vince.lee/.claude/skills/gstack/bin/sprint-finish ]; then
-  /Users/vince.lee/.claude/skills/gstack/bin/sprint-finish
+if command -v sprint-finish >/dev/null 2>&1; then
+  sprint-finish
 elif [ -x "$ROOT/bin/sprint-finish" ]; then
   "$ROOT/bin/sprint-finish"
+elif [ -x "$HOME/.codex/skills/sprint/bin/sprint-finish" ]; then
+  "$HOME/.codex/skills/sprint/bin/sprint-finish"
+elif [ -x "$HOME/.claude/skills/sprint/bin/sprint-finish" ]; then
+  "$HOME/.claude/skills/sprint/bin/sprint-finish"
 else
   echo "ERROR: sprint-finish not found. Run ./setup for this repo first."
   exit 1

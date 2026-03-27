@@ -13,7 +13,7 @@ PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 ROOT="${CONDUCTOR_ROOT_PATH:-$(git rev-parse --show-toplevel)}"
 WS="${CONDUCTOR_WORKSPACE_NAME:-$(basename "$PWD")}"
-SPRINT_FILE="$ROOT/.gstack-sprint.json"
+SPRINT_FILE="$ROOT/.sprint.json"
 
 if [ ! -f "$SPRINT_FILE" ]; then
   echo "ERROR: No sprint file found at $SPRINT_FILE. Run /sprint first."
@@ -31,11 +31,18 @@ TASK_ID="$(jq -r --arg ws "$WS" \
   "$SPRINT_FILE" | head -n1)"
 
 if [ -z "${TASK_ID:-}" ] || [ "$TASK_ID" = "null" ]; then
-  GSTACK_BIN="$HOME/.codex/skills/gstack/bin"
-  if [ ! -x "$GSTACK_BIN/sprint-setup" ]; then
-    GSTACK_BIN="$HOME/.claude/skills/gstack/bin"
+  if command -v sprint-setup >/dev/null 2>&1; then
+    sprint-setup "$WS" "$ROOT"
+  elif [ -x "$ROOT/bin/sprint-setup" ]; then
+    "$ROOT/bin/sprint-setup" "$WS" "$ROOT"
+  elif [ -x "$HOME/.codex/skills/sprint/bin/sprint-setup" ]; then
+    "$HOME/.codex/skills/sprint/bin/sprint-setup" "$WS" "$ROOT"
+  elif [ -x "$HOME/.claude/skills/sprint/bin/sprint-setup" ]; then
+    "$HOME/.claude/skills/sprint/bin/sprint-setup" "$WS" "$ROOT"
+  else
+    echo "ERROR: sprint-setup not found (PATH, repo bin, or ~/.codex|~/.claude skills/sprint)." >&2
+    exit 1
   fi
-  "$GSTACK_BIN/sprint-setup" "$WS" "$ROOT"
   TASK_ID="$(jq -r --arg ws "$WS" \
     '.tasks[] | select(.workspace == $ws and .status == "in-progress") | .id' \
     "$SPRINT_FILE" | head -n1)"
@@ -66,4 +73,4 @@ Then:
 3. Do not start implementation until user explicitly approves.
 4. If approved, implement only this task scope.
 5. When done, set task to review:
-   `jq --argjson id <TASK_ID> '(.tasks[] | select(.id == $id)).status = "review"' .gstack-sprint.json > .gstack-sprint.json.tmp && mv .gstack-sprint.json.tmp .gstack-sprint.json`
+   `jq --argjson id <TASK_ID> '(.tasks[] | select(.id == $id)).status = "review"' .sprint.json > .sprint.json.tmp && mv .sprint.json.tmp .sprint.json`
