@@ -8,20 +8,31 @@ Lightweight Scrum coordination layer for parallel AI development with [Conductor
 
 **The idea:** type a sprint topic, get a sprint board, press ⌘+K in Conductor — each workspace auto-claims a task and starts executing. You only think about what to build next.
 
-### Files
+### Purpose
 
-| File | Purpose |
-|------|---------|
-| `setup` | One-command installer (`./setup`) for skill + scripts + slash commands |
-| `sprint/SKILL.md.tmpl` | Skill source (edit this) |
-| `sprint/SKILL.md` | Generated skill (don't edit) |
-| `bin/sprint-setup` | Conductor workspace bootstrap — claims task, creates branch |
-| `bin/sprint-board` | Live terminal board (`watch -n 3` + `jq`) |
-| `bin/sprint-finish` | Resolve remaining tasks and close sprint |
-| `commands/sprint.md` | `/sprint` slash command (entry point) |
-| `commands/sprint-task.md` | `/sprint-task` slash command (manual claim + approval gate) |
-| `commands/sprint-board.md` | `/sprint-board` slash command (one-shot snapshot) |
-| `commands/sprint-finish.md` | `/sprint-finish` slash command |
+`/sprint` exists to make parallel AI execution predictable instead of chaotic. It gives one shared sprint file and task lifecycle that every workspace follows.
+
+- Break one feature goal into explicit, independently executable tasks.
+- Auto-assign clear ownership so each workspace knows what to do next.
+- Keep humans in control with an explicit approval gate before implementation.
+- Expose live progress and blockers in a single terminal board.
+- Close the sprint cleanly by resolving leftover tasks and preserving state.
+
+### Usage
+
+1. In any CC session in your project: `/sprint`
+2. Describe your sprint topic (or use an existing `/autoplan` output)
+3. Open Conductor, press ⌘+K once per task
+4. In each workspace, run `/sprint-task` to claim/view a task, then implement after explicit approval
+5. Watch progress: `sprint-board .gstack-sprint.json`
+6. When implementation/review cycle is done, run: `sprint-finish`
+
+### Prerequisites
+
+- [gstack](https://github.com/garrytan/gstack) installed and set up (`./setup`)
+- [Conductor](https://docs.conductor.build/) (Mac app)
+- `jq` — `brew install jq`
+- `watch` — `brew install watch`
 
 ### Install
 
@@ -63,18 +74,17 @@ Optional: use custom install paths (for repo-local gstack installs):
 ./setup --gstack-root .codex/skills/gstack --commands-dir .codex/commands
 ```
 
-### Prerequisites
+### Files
 
-- [gstack](https://github.com/garrytan/gstack) installed and set up (`./setup`)
-- [Conductor](https://docs.conductor.build/) (Mac app)
-- `jq` — `brew install jq`
-- `watch` — `brew install watch`
-
-### Usage
-
-1. In any CC session in your project: `/sprint`
-2. Describe your sprint topic (or use an existing `/autoplan` output)
-3. Open Conductor, press ⌘+K once per task
-4. In each workspace, run `/sprint-task` to claim/view a task, then implement after explicit approval
-5. Watch progress: `sprint-board .gstack-sprint.json`
-6. When implementation/review cycle is done, run: `sprint-finish`
+| File | Purpose |
+|------|---------|
+| `setup` | One-command installer (`./setup`) for skill + scripts + slash commands |
+| `sprint/SKILL.md.tmpl` | Skill source (edit this) |
+| `sprint/SKILL.md` | Generated skill (don't edit) |
+| `bin/sprint-setup` | Conductor workspace bootstrap — claims task, creates branch |
+| `bin/sprint-board` | Live terminal board (`watch -n 3` + `jq`) |
+| `bin/sprint-finish` | Resolve remaining tasks and close sprint |
+| `commands/sprint.md` | `/sprint` slash command (entry point) |
+| `commands/sprint-task.md` | `/sprint-task` slash command (manual claim + approval gate) |
+| `commands/sprint-board.md` | `/sprint-board` slash command (one-shot snapshot) |
+| `commands/sprint-finish.md` | `/sprint-finish` slash command |
