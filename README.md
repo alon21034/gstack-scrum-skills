@@ -41,6 +41,14 @@ git clone --single-branch --depth 1 https://github.com/alon21034/gstack-scrum-sk
 cd ~/.codex/skills/gstack-sprint && ./setup
 ```
 
+Choose host explicitly when needed:
+
+```bash
+./setup --host codex
+./setup --host claude
+./setup --host auto
+```
+
 3. Verify files landed in the expected locations:
 
 ```bash
@@ -54,8 +62,6 @@ Optional: use custom install paths (for repo-local gstack installs):
 ```bash
 ./setup --gstack-root .codex/skills/gstack --commands-dir .codex/commands
 ```
-
-If you use Claude Code paths, replace `.codex` with `.claude` in the commands above.
 
 ### Prerequisites
 

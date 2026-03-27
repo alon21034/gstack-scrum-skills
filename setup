@@ -7,30 +7,61 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 GSTACK_ROOT="${GSTACK_ROOT:-}"
 COMMANDS_DIR="${COMMANDS_DIR:-}"
+INSTALL_HOST="${SETUP_HOST:-auto}"
 DRY_RUN=false
 
+is_valid_host() {
+  local host="$1"
+  case "$host" in
+    auto|claude|codex) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 default_gstack_root() {
-  if [[ -d "$HOME/.codex/skills/gstack" ]]; then
-    printf "%s\n" "$HOME/.codex/skills/gstack"
-    return
-  fi
-  if [[ -d "$HOME/.claude/skills/gstack" ]]; then
-    printf "%s\n" "$HOME/.claude/skills/gstack"
-    return
-  fi
-  printf "%s\n" "$HOME/.codex/skills/gstack"
+  local host="${1:-auto}"
+  case "$host" in
+    codex)
+      printf "%s\n" "$HOME/.codex/skills/gstack"
+      ;;
+    claude)
+      printf "%s\n" "$HOME/.claude/skills/gstack"
+      ;;
+    auto)
+      if [[ -d "$HOME/.codex/skills/gstack" ]]; then
+        printf "%s\n" "$HOME/.codex/skills/gstack"
+        return
+      fi
+      if [[ -d "$HOME/.claude/skills/gstack" ]]; then
+        printf "%s\n" "$HOME/.claude/skills/gstack"
+        return
+      fi
+      printf "%s\n" "$HOME/.codex/skills/gstack"
+      ;;
+  esac
 }
 
 default_commands_dir() {
-  if [[ -d "$HOME/.codex/commands" ]]; then
-    printf "%s\n" "$HOME/.codex/commands"
-    return
-  fi
-  if [[ -d "$HOME/.claude/commands" ]]; then
-    printf "%s\n" "$HOME/.claude/commands"
-    return
-  fi
-  printf "%s\n" "$HOME/.codex/commands"
+  local host="${1:-auto}"
+  case "$host" in
+    codex)
+      printf "%s\n" "$HOME/.codex/commands"
+      ;;
+    claude)
+      printf "%s\n" "$HOME/.claude/commands"
+      ;;
+    auto)
+      if [[ -d "$HOME/.codex/commands" ]]; then
+        printf "%s\n" "$HOME/.codex/commands"
+        return
+      fi
+      if [[ -d "$HOME/.claude/commands" ]]; then
+        printf "%s\n" "$HOME/.claude/commands"
+        return
+      fi
+      printf "%s\n" "$HOME/.codex/commands"
+      ;;
+  esac
 }
 
 usage() {
@@ -38,12 +69,14 @@ usage() {
 Usage: ./setup [options]
 
 Options:
+  --host <auto|claude|codex>  Host to target for default paths (default: auto)
   --gstack-root <path>   gstack root directory (default: ~/.codex/skills/gstack, fallback ~/.claude/skills/gstack)
   --commands-dir <path>  commands directory (default: ~/.codex/commands, fallback ~/.claude/commands)
   --dry-run              Print actions without writing files
   -h, --help             Show this help
 
 Environment overrides:
+  SETUP_HOST             same as --host
   GSTACK_ROOT            same as --gstack-root
   COMMANDS_DIR           same as --commands-dir
 EOF
@@ -73,6 +106,15 @@ run() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --host)
+      [[ $# -ge 2 ]] || { echo "ERROR: --host requires a value" >&2; exit 1; }
+      INSTALL_HOST="$2"
+      if ! is_valid_host "$INSTALL_HOST"; then
+        echo "ERROR: invalid --host value: $INSTALL_HOST (expected auto|claude|codex)" >&2
+        exit 1
+      fi
+      shift 2
+      ;;
     --gstack-root)
       [[ $# -ge 2 ]] || { echo "ERROR: --gstack-root requires a value" >&2; exit 1; }
       GSTACK_ROOT="$2"
@@ -99,11 +141,16 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if ! is_valid_host "$INSTALL_HOST"; then
+  echo "ERROR: invalid SETUP_HOST value: $INSTALL_HOST (expected auto|claude|codex)" >&2
+  exit 1
+fi
+
 if [[ -z "$GSTACK_ROOT" ]]; then
-  GSTACK_ROOT="$(default_gstack_root)"
+  GSTACK_ROOT="$(default_gstack_root "$INSTALL_HOST")"
 fi
 if [[ -z "$COMMANDS_DIR" ]]; then
-  COMMANDS_DIR="$(default_commands_dir)"
+  COMMANDS_DIR="$(default_commands_dir "$INSTALL_HOST")"
 fi
 
 GSTACK_ROOT="$(expand_path "$GSTACK_ROOT")"
@@ -160,6 +207,7 @@ cat <<EOF
 Install complete.
 
 Installed into:
+  host mode:   $INSTALL_HOST
   gstack root: $GSTACK_ROOT
   commands:    $COMMANDS_DIR
 
