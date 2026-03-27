@@ -9,6 +9,9 @@ SKILL_ROOT="${SKILL_ROOT:-}"
 COMMANDS_DIR="${COMMANDS_DIR:-}"
 INSTALL_HOST="${SETUP_HOST:-auto}"
 DRY_RUN=false
+TARGET_HOSTS=()
+TARGET_SKILL_ROOTS=()
+TARGET_COMMANDS_DIRS=()
 
 is_valid_host() {
   local host="$1"
@@ -39,6 +42,74 @@ default_skill_root() {
   esac
 }
 
+host_installed() {
+  local host="$1"
+  case "$host" in
+    codex)
+      [[ -d "$HOME/.codex/skills" || -d "$HOME/.codex/commands" ]]
+      ;;
+    claude)
+      [[ -d "$HOME/.claude/skills" || -d "$HOME/.claude/commands" ]]
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+resolve_auto_hosts() {
+  local found=false
+  if host_installed codex; then
+    printf "%s\n" "codex"
+    found=true
+  fi
+  if host_installed claude; then
+    printf "%s\n" "claude"
+    found=true
+  fi
+  if ! $found; then
+    # Keep historic default when no host directories exist.
+    printf "%s\n" "codex"
+  fi
+}
+
+add_install_target() {
+  local host="$1"
+  local skill_root="$2"
+  local commands_dir="$3"
+  local i
+
+  # Avoid duplicate work when paths collapse to the same destination.
+  for i in "${!TARGET_SKILL_ROOTS[@]}"; do
+    if [[ "${TARGET_SKILL_ROOTS[$i]}" == "$skill_root" && "${TARGET_COMMANDS_DIRS[$i]}" == "$commands_dir" ]]; then
+      return 0
+    fi
+  done
+
+  TARGET_HOSTS+=("$host")
+  TARGET_SKILL_ROOTS+=("$skill_root")
+  TARGET_COMMANDS_DIRS+=("$commands_dir")
+}
+
+resolve_install_targets() {
+  local auto_host
+  local resolved_skill_root
+  local resolved_commands_dir
+
+  if [[ "$INSTALL_HOST" == "auto" && -z "$SKILL_ROOT" && -z "$COMMANDS_DIR" ]]; then
+    while IFS= read -r auto_host; do
+      resolved_skill_root="$(expand_path "$(default_skill_root "$auto_host")")"
+      resolved_commands_dir="$(expand_path "$(default_commands_dir "$auto_host")")"
+      add_install_target "$auto_host" "$resolved_skill_root" "$resolved_commands_dir"
+    done < <(resolve_auto_hosts)
+    return 0
+  fi
+
+  resolved_skill_root="${SKILL_ROOT:-$(default_skill_root "$INSTALL_HOST")}"
+  resolved_commands_dir="${COMMANDS_DIR:-$(default_commands_dir "$INSTALL_HOST")}"
+  add_install_target "$INSTALL_HOST" "$(expand_path "$resolved_skill_root")" "$(expand_path "$resolved_commands_dir")"
+}
+
 default_commands_dir() {
   local host="${1:-auto}"
   case "$host" in
@@ -67,9 +138,9 @@ usage() {
 Usage: ./setup [options]
 
 Options:
-  --host <auto|claude|codex>  Host to target for default paths (default: auto)
+  --host <auto|claude|codex>  Host mode. auto installs to both when both are present (default: auto)
   --skill-root <path>    install root for sprint skill/bin (default: ~/.codex/skills/sprint, host-aware)
-  --commands-dir <path>  commands directory (default: ~/.codex/commands, fallback ~/.claude/commands)
+  --commands-dir <path>  commands directory (default: host-aware)
   --dry-run              Print actions without writing files
   -h, --help             Show this help
 
@@ -148,15 +219,7 @@ if ! is_valid_host "$INSTALL_HOST"; then
   exit 1
 fi
 
-if [[ -z "$SKILL_ROOT" ]]; then
-  SKILL_ROOT="$(default_skill_root "$INSTALL_HOST")"
-fi
-if [[ -z "$COMMANDS_DIR" ]]; then
-  COMMANDS_DIR="$(default_commands_dir "$INSTALL_HOST")"
-fi
-
-SKILL_ROOT="$(expand_path "$SKILL_ROOT")"
-COMMANDS_DIR="$(expand_path "$COMMANDS_DIR")"
+resolve_install_targets
 
 REQUIRED_FILES=(
   "sprint/SKILL.md"
@@ -177,19 +240,23 @@ for rel in "${REQUIRED_FILES[@]}"; do
   fi
 done
 
-run mkdir -p "$SKILL_ROOT/sprint" "$SKILL_ROOT/bin" "$COMMANDS_DIR"
+for i in "${!TARGET_HOSTS[@]}"; do
+  target_skill_root="${TARGET_SKILL_ROOTS[$i]}"
+  target_commands_dir="${TARGET_COMMANDS_DIRS[$i]}"
+  run mkdir -p "$target_skill_root/sprint" "$target_skill_root/bin" "$target_commands_dir"
 
-run install -m 0644 "$SCRIPT_DIR/sprint/SKILL.md" "$SKILL_ROOT/sprint/SKILL.md"
-run install -m 0644 "$SCRIPT_DIR/sprint/SKILL.md.tmpl" "$SKILL_ROOT/sprint/SKILL.md.tmpl"
+  run install -m 0644 "$SCRIPT_DIR/sprint/SKILL.md" "$target_skill_root/sprint/SKILL.md"
+  run install -m 0644 "$SCRIPT_DIR/sprint/SKILL.md.tmpl" "$target_skill_root/sprint/SKILL.md.tmpl"
 
-run install -m 0755 "$SCRIPT_DIR/bin/sprint-setup" "$SKILL_ROOT/bin/sprint-setup"
-run install -m 0755 "$SCRIPT_DIR/bin/sprint-board" "$SKILL_ROOT/bin/sprint-board"
-run install -m 0755 "$SCRIPT_DIR/bin/sprint-finish" "$SKILL_ROOT/bin/sprint-finish"
+  run install -m 0755 "$SCRIPT_DIR/bin/sprint-setup" "$target_skill_root/bin/sprint-setup"
+  run install -m 0755 "$SCRIPT_DIR/bin/sprint-board" "$target_skill_root/bin/sprint-board"
+  run install -m 0755 "$SCRIPT_DIR/bin/sprint-finish" "$target_skill_root/bin/sprint-finish"
 
-run install -m 0644 "$SCRIPT_DIR/commands/sprint.md" "$COMMANDS_DIR/sprint.md"
-run install -m 0644 "$SCRIPT_DIR/commands/sprint-board.md" "$COMMANDS_DIR/sprint-board.md"
-run install -m 0644 "$SCRIPT_DIR/commands/sprint-finish.md" "$COMMANDS_DIR/sprint-finish.md"
-run install -m 0644 "$SCRIPT_DIR/commands/sprint-task.md" "$COMMANDS_DIR/sprint-task.md"
+  run install -m 0644 "$SCRIPT_DIR/commands/sprint.md" "$target_commands_dir/sprint.md"
+  run install -m 0644 "$SCRIPT_DIR/commands/sprint-board.md" "$target_commands_dir/sprint-board.md"
+  run install -m 0644 "$SCRIPT_DIR/commands/sprint-finish.md" "$target_commands_dir/sprint-finish.md"
+  run install -m 0644 "$SCRIPT_DIR/commands/sprint-task.md" "$target_commands_dir/sprint-task.md"
+done
 
 if $DRY_RUN; then
   echo "Dry run complete."
@@ -201,11 +268,16 @@ Install complete.
 
 Installed into:
   host mode:   $INSTALL_HOST
-  skill root:  $SKILL_ROOT
-  commands:    $COMMANDS_DIR
+$(for i in "${!TARGET_HOSTS[@]}"; do
+  printf "  target %s:   host=%s\n" "$((i + 1))" "${TARGET_HOSTS[$i]}"
+  printf "               skill root=%s\n" "${TARGET_SKILL_ROOTS[$i]}"
+  printf "               commands=%s\n" "${TARGET_COMMANDS_DIRS[$i]}"
+done)
 
 Quick checks:
-  ls $SKILL_ROOT/bin/sprint-{setup,board,finish}
-  ls $SKILL_ROOT/sprint/SKILL.md
-  ls $COMMANDS_DIR/sprint{,-task,-board,-finish}.md
+$(for i in "${!TARGET_HOSTS[@]}"; do
+  printf "  ls %s/bin/sprint-{setup,board,finish}\n" "${TARGET_SKILL_ROOTS[$i]}"
+  printf "  ls %s/sprint/SKILL.md\n" "${TARGET_SKILL_ROOTS[$i]}"
+  printf "  ls %s/sprint{,-task,-board,-finish}.md\n" "${TARGET_COMMANDS_DIRS[$i]}"
+done)
 EOF
