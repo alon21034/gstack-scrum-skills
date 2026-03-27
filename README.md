@@ -67,7 +67,7 @@ cd ~/.codex/skills/sprint && ./setup
 ```bash
 ./setup --host codex
 ./setup --host claude
-./setup --host auto
+./setup --host auto   # installs to both if both are present
 ```
 
 3. Verify files landed in the expected locations:
