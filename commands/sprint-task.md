@@ -78,4 +78,4 @@ Then:
 3. Do not start implementation until user explicitly approves.
 4. If approved, implement only this task scope.
 5. When done, set task to review:
-   `jq --argjson id <TASK_ID> '(.tasks[] | select(.id == $id)).status = "review"' .context/.sprint.json > .context/.sprint.json.tmp && mv .context/.sprint.json.tmp .context/.sprint.json`
+   `jq --argjson id <TASK_ID> '(.tasks[] | select(.id == $id)).status = "review"' "$ROOT/.context/.sprint.json" > "$ROOT/.context/.sprint.json.tmp" && mv "$ROOT/.context/.sprint.json.tmp" "$ROOT/.context/.sprint.json" && (sprint-board "$ROOT/.context/.sprint.json" >/dev/null 2>&1 || "$ROOT/bin/sprint-board" "$ROOT/.context/.sprint.json" >/dev/null 2>&1)`
