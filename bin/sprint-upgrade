@@ -1,26 +1,36 @@
 #!/usr/bin/env bash
 # sprint-upgrade — Upgrade sprint skills package and reinstall commands
-# Usage: sprint-upgrade [--repo <path>] [setup options...]
+# Usage:
+#   sprint-upgrade [--repo <path>] [setup options...]
+#   sprint-upgrade --check [--quiet] [--repo <path>]
 
 set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage: sprint-upgrade [--repo <path>] [setup options...]
+Usage:
+  sprint-upgrade [--repo <path>] [setup options...]
+  sprint-upgrade --check [--quiet] [--repo <path>]
 
 Options:
-  --repo <path>  Upgrade this sprint repository path instead of auto-detecting.
+  --repo <path>  Use this sprint repository path instead of auto-detecting.
+  --check        Check if an upgrade is available, but do not modify anything.
+  --quiet        With --check, suppress non-actionable output.
   -h, --help     Show this help.
 
 Any additional arguments are passed through to ./setup.
 Examples:
   sprint-upgrade
+  sprint-upgrade --check
+  sprint-upgrade --check --quiet
   sprint-upgrade --host codex
   sprint-upgrade --repo ~/.codex/skills/sprint --host auto
 USAGE
 }
 
 REPO_HINT=""
+CHECK_ONLY=false
+QUIET=false
 SETUP_ARGS=()
 
 while [ "$#" -gt 0 ]; do
@@ -33,6 +43,14 @@ while [ "$#" -gt 0 ]; do
       REPO_HINT="$2"
       shift 2
       ;;
+    --check)
+      CHECK_ONLY=true
+      shift
+      ;;
+    --quiet)
+      QUIET=true
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -43,6 +61,11 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
+
+if $CHECK_ONLY && [ "${#SETUP_ARGS[@]}" -gt 0 ]; then
+  echo "ERROR: setup options cannot be used with --check." >&2
+  exit 1
+fi
 
 command -v git >/dev/null 2>&1 || {
   echo "ERROR: git is required." >&2
@@ -73,6 +96,73 @@ resolve_repo_root() {
   return 1
 }
 
+check_upgrade_status() {
+  local repo_root="$1"
+  local branch upstream target_ref local_sha target_sha local_short target_short
+
+  branch="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  if [ -z "$branch" ] || [ "$branch" = "HEAD" ]; then
+    if ! $QUIET; then
+      echo "Could not check upgrades: repository is in detached HEAD state." >&2
+    fi
+    return 11
+  fi
+
+  if ! git -C "$repo_root" fetch --quiet --all --prune; then
+    if ! $QUIET; then
+      echo "Could not check upgrades: failed to fetch remotes." >&2
+    fi
+    return 11
+  fi
+
+  upstream="$(git -C "$repo_root" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)"
+  if [ -n "$upstream" ]; then
+    target_ref="$upstream"
+  else
+    target_ref="origin/$branch"
+    if ! git -C "$repo_root" show-ref --verify --quiet "refs/remotes/$target_ref"; then
+      if ! $QUIET; then
+        echo "Could not check upgrades: no upstream and missing $target_ref." >&2
+      fi
+      return 11
+    fi
+  fi
+
+  local_sha="$(git -C "$repo_root" rev-parse HEAD)"
+  target_sha="$(git -C "$repo_root" rev-parse "$target_ref" 2>/dev/null || true)"
+  if [ -z "$target_sha" ]; then
+    if ! $QUIET; then
+      echo "Could not check upgrades: could not resolve $target_ref." >&2
+    fi
+    return 11
+  fi
+
+  local_short="$(git -C "$repo_root" rev-parse --short "$local_sha")"
+  target_short="$(git -C "$repo_root" rev-parse --short "$target_sha")"
+
+  if [ "$local_sha" = "$target_sha" ]; then
+    if ! $QUIET; then
+      echo "Already up to date at $local_short"
+    fi
+    return 0
+  fi
+
+  if git -C "$repo_root" merge-base --is-ancestor "$local_sha" "$target_sha"; then
+    echo "Upgrade available: $local_short -> $target_short. Run sprint-upgrade."
+    return 10
+  fi
+
+  if git -C "$repo_root" merge-base --is-ancestor "$target_sha" "$local_sha"; then
+    if ! $QUIET; then
+      echo "Local repository is ahead of $target_ref."
+    fi
+    return 0
+  fi
+
+  echo "Upgrade attention needed: local branch has diverged from $target_ref."
+  return 10
+}
+
 if ! REPO_ROOT="$(resolve_repo_root)"; then
   echo "ERROR: Could not locate sprint repository root." >&2
   echo "Provide it explicitly: sprint-upgrade --repo <path>" >&2
@@ -90,6 +180,20 @@ if ! git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo "ERROR: $REPO_ROOT is not a git repository. Cannot self-upgrade." >&2
   echo "Reinstall by cloning the latest repo, then run ./setup." >&2
   exit 1
+fi
+
+if $CHECK_ONLY; then
+  if check_upgrade_status "$REPO_ROOT"; then
+    exit 0
+  else
+    check_rc=$?
+  fi
+
+  case "$check_rc" in
+    10) exit 10 ;;
+    11) exit 11 ;;
+    *) exit 1 ;;
+  esac
 fi
 
 if ! git -C "$REPO_ROOT" diff --quiet || ! git -C "$REPO_ROOT" diff --cached --quiet; then
