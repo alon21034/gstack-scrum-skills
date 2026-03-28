@@ -12,7 +12,7 @@ Sprint file location rules:
 Output behavior:
 - Write HTML to `.context/sprint-board.html` (or sibling directory of the sprint file)
 - Include a task table with: task id, title, status, assigned workspace, branch, and elapsed time since `started_at` (or `not started`)
-- Include dependency status for all tasks that have `depends_on` fields, clearly marking `resolved` vs `blocked`
+- Include a task dependency graph based on `depends_on` (not a dependency table), visually marking `resolved` vs `blocked` edges
 - Include sprint-level progress counts: done/total, backlog, deleted, review, in-progress, pending
 - Return the absolute output path and a one-line open command (`open <path>` on macOS)
 
