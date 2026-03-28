@@ -38,6 +38,27 @@ resolve_sprint_file() {
 }
 
 SPRINT_FILE="$(resolve_sprint_file)"
+LOCK_DIR="$(dirname "$SPRINT_FILE")/.sprint.lockdir"
+
+# --- Lockdir-based mutual exclusion (no flock needed) ---
+acquire_lock() {
+  local max_wait="${1:-10}"
+  local waited=0
+  while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+    sleep 0.2
+    waited=$(echo "$waited + 0.2" | bc)
+    if [ "$(echo "$waited >= $max_wait" | bc)" -eq 1 ]; then
+      echo "ERROR: Could not acquire sprint lock after ${max_wait}s." >&2
+      return 1
+    fi
+  done
+}
+
+release_lock() {
+  rmdir "$LOCK_DIR" 2>/dev/null || true
+}
+
+trap 'release_lock' EXIT
 
 [ -f "$SPRINT_FILE" ] || {
   echo "ERROR: Sprint file not found: $SPRINT_FILE" >&2
@@ -83,6 +104,8 @@ update_task_status() {
 
   ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+  acquire_lock 10
+
   case "$target_status" in
     done)
       jq --argjson id "$task_id" --arg ts "$ts" \
@@ -104,11 +127,13 @@ update_task_status() {
       ;;
     *)
       echo "ERROR: Unsupported target status: $target_status" >&2
+      release_lock
       return 1
       ;;
   esac
 
   mv "$SPRINT_FILE.tmp" "$SPRINT_FILE"
+  release_lock
 }
 
 prompt_yes_no() {
@@ -236,11 +261,13 @@ if [ "$UNRESOLVED_COUNT" -gt 0 ]; then
 fi
 
 CLOSED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+acquire_lock 10
 jq --arg ts "$CLOSED_AT" '
   .sprint.status = "complete" |
   .sprint.closed_at = (.sprint.closed_at // $ts)
 ' "$SPRINT_FILE" > "$SPRINT_FILE.tmp"
 mv "$SPRINT_FILE.tmp" "$SPRINT_FILE"
+release_lock
 
 echo
 echo "Sprint complete: $TOPIC"

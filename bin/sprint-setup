@@ -5,7 +5,7 @@
 #
 # What it does:
 #   1. Validates the sprint file exists and is valid JSON
-#   2. Atomically claims first available pending task (using flock)
+#   2. Atomically claims first available pending task (using mkdir lock)
 #   3. Creates a git branch for the task
 #   4. Writes a /sprint-task slash command to .codex/commands/ or .claude/commands/
 #   5. Writes .sprint-task-prompt.txt for the conductor.json run script
@@ -28,14 +28,43 @@ command -v jq >/dev/null 2>&1 || {
   echo "ERROR: jq is required. Install with: brew install jq" >&2
   exit 1
 }
-command -v flock >/dev/null 2>&1 || {
-  echo "ERROR: flock is required for task locking. Install with Homebrew and ensure it is on PATH." >&2
-  exit 1
-}
 
 CONTEXT_DIR="$ROOT_PATH/.context"
 SPRINT_FILE="$CONTEXT_DIR/.sprint.json"
-LOCK_FILE="$CONTEXT_DIR/.sprint.lock"
+LOCK_DIR="$CONTEXT_DIR/.sprint.lockdir"
+
+# --- Lockdir-based mutual exclusion (no flock needed) ---
+# mkdir is atomic on POSIX — only one process succeeds.
+acquire_lock() {
+  local max_wait="${1:-10}"
+  local waited=0
+  while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+    sleep 0.2
+    waited=$(echo "$waited + 0.2" | bc)
+    if [ "$(echo "$waited >= $max_wait" | bc)" -eq 1 ]; then
+      echo "ERROR: Could not acquire sprint lock after ${max_wait}s. Another workspace may be writing." >&2
+      return 1
+    fi
+  done
+}
+
+release_lock() {
+  rmdir "$LOCK_DIR" 2>/dev/null || true
+}
+
+# Safety: always release lock on exit if we hold it
+trap 'release_lock' EXIT
+
+# --- Helper: atomically update sprint file under lock ---
+sprint_update() {
+  # Usage: sprint_update <jq-filter> [jq-args...]
+  # Acquires lock, runs jq, writes atomically, releases lock.
+  local filter="$1"
+  shift
+  acquire_lock 10
+  jq "$@" "$filter" "$SPRINT_FILE" > "$SPRINT_FILE.tmp" && mv "$SPRINT_FILE.tmp" "$SPRINT_FILE"
+  release_lock
+}
 
 # Validate sprint file exists and is valid JSON
 [ -f "$SPRINT_FILE" ] || {
@@ -55,16 +84,18 @@ if [ "$SPRINT_STATUS" != "active" ]; then
   exit 1
 fi
 
-# Claim a task atomically using flock
+# Claim a task atomically
+# If all pending tasks are blocked by dependencies, prompt the user to wait or exit.
 TASK_ID=""
 TASK_TITLE=""
 TASK_DESC=""
+MAX_RETRIES=120      # 120 retries × 10s = up to ~20 minutes of waiting
+RETRY_INTERVAL=10    # seconds between retries
+CLAIMED=0
+PROMPTED_WAIT=0
 
-(
-  flock -w 5 -x 200 || {
-    echo "ERROR: Could not acquire sprint lock after 5 seconds. Another workspace may be starting." >&2
-    exit 1
-  }
+for attempt in $(seq 1 "$MAX_RETRIES"); do
+  acquire_lock 10
 
   # Find first pending task whose dependencies (if any) are all done
   TASK_ID=$(jq -r '
@@ -75,27 +106,72 @@ TASK_DESC=""
     | .[0].id
   ' "$SPRINT_FILE")
 
-  if [ -z "$TASK_ID" ] || [ "$TASK_ID" = "null" ]; then
-    # Check if there are pending tasks with unresolved dependencies
-    BLOCKED_COUNT=$(jq '[.tasks[] | select(.status == "pending")] | length' "$SPRINT_FILE")
-    if [ "$BLOCKED_COUNT" -gt "0" ]; then
-      echo "No available tasks — waiting for dependencies to complete. ($BLOCKED_COUNT task(s) blocked)" >&2
-    else
-      echo "No pending tasks available — all tasks claimed or completed." >&2
-    fi
+  if [ -n "$TASK_ID" ] && [ "$TASK_ID" != "null" ]; then
+    # Mark task as in-progress and record workspace
+    jq --arg ws "$WORKSPACE_NAME" --argjson id "$TASK_ID" \
+      --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      '(.tasks[] | select(.id == $id)).status = "in-progress" |
+       (.tasks[] | select(.id == $id)).workspace = $ws |
+       (.tasks[] | select(.id == $id)).started_at = $ts' \
+      "$SPRINT_FILE" > "$SPRINT_FILE.tmp" && mv "$SPRINT_FILE.tmp" "$SPRINT_FILE"
+    release_lock
+    CLAIMED=1
+    break
+  fi
+
+  # No claimable task — check why
+  BLOCKED_COUNT=$(jq '[.tasks[] | select(.status == "pending")] | length' "$SPRINT_FILE")
+  release_lock
+
+  if [ "$BLOCKED_COUNT" -eq "0" ]; then
+    echo "No pending tasks available — all tasks claimed or completed." >&2
     exit 1
   fi
 
-  # Mark task as in-progress and record workspace
-  jq --arg ws "$WORKSPACE_NAME" --argjson id "$TASK_ID" \
-    --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '(.tasks[] | select(.id == $id)).status = "in-progress" |
-     (.tasks[] | select(.id == $id)).workspace = $ws |
-     (.tasks[] | select(.id == $id)).started_at = $ts' \
-    "$SPRINT_FILE" > "$SPRINT_FILE.tmp" && mv "$SPRINT_FILE.tmp" "$SPRINT_FILE"
+  # First time hitting blocked deps: show blockers and prompt user
+  if [ "$PROMPTED_WAIT" -eq 0 ]; then
+    echo ""
+    echo "⏳ $BLOCKED_COUNT pending task(s) are waiting for dependencies to complete."
+    echo ""
+    echo "Blocked tasks:"
+    jq -r '
+      . as $root |
+      .tasks[] | select(.status == "pending") |
+      select((.depends_on // []) | length > 0) |
+      select((.depends_on // []) | map(. as $dep | $root.tasks[] | select(.id == $dep) | .status == "done") | all | not) |
+      "  Task \(.id): \(.title)  ←  blocked by: \(
+        [.depends_on[] | . as $dep | $root.tasks[] | select(.id == $dep) | select(.status != "done") |
+         "task \(.id) (\(.status))"] | join(", ")
+      )"
+    ' "$SPRINT_FILE"
+    echo ""
+    printf "Wait for blockers to finish? This will retry for up to 20 minutes. (yes/no): "
+    if ! IFS= read -r answer < /dev/tty 2>/dev/null; then
+      # Non-interactive — default to wait
+      answer="yes"
+    fi
+    answer="$(echo "$answer" | tr '[:upper:]' '[:lower:]' | xargs)"
+    case "$answer" in
+      yes|y)
+        echo "Will poll every ${RETRY_INTERVAL}s for up to ~20 minutes. If it times out, manually restart the workspace to try again."
+        PROMPTED_WAIT=1
+        ;;
+      *)
+        echo "Exiting — no available tasks to claim." >&2
+        exit 1
+        ;;
+    esac
+  else
+    echo "Still waiting for dependencies... ($BLOCKED_COUNT pending, attempt $attempt/$MAX_RETRIES)" >&2
+  fi
 
-  echo "CLAIMED_TASK_ID=$TASK_ID"
-) 200>"$LOCK_FILE"
+  sleep "$RETRY_INTERVAL"
+done
+
+if [ "$CLAIMED" -ne 1 ]; then
+  echo "ERROR: Timed out waiting for dependencies to resolve after ~20 minutes. Please manually restart the workspace to try again." >&2
+  exit 1
+fi
 
 # Read back claimed task details
 TASK_ID=$(jq -r --arg ws "$WORKSPACE_NAME" \
@@ -117,11 +193,14 @@ echo "Claimed task $TASK_ID: $TASK_TITLE"
 # Rollback task to pending if any subsequent step fails
 rollback() {
   echo "sprint-setup failed — rolling task $TASK_ID back to pending." >&2
-  jq --argjson id "$TASK_ID" \
-    '(.tasks[] | select(.id == $id)).status = "pending" |
-     (.tasks[] | select(.id == $id)).workspace = null |
-     (.tasks[] | select(.id == $id)).started_at = null' \
-    "$SPRINT_FILE" > "$SPRINT_FILE.tmp" 2>/dev/null && mv "$SPRINT_FILE.tmp" "$SPRINT_FILE" || true
+  if mkdir "$LOCK_DIR" 2>/dev/null; then
+    jq --argjson id "$TASK_ID" \
+      '(.tasks[] | select(.id == $id)).status = "pending" |
+       (.tasks[] | select(.id == $id)).workspace = null |
+       (.tasks[] | select(.id == $id)).started_at = null' \
+      "$SPRINT_FILE" > "$SPRINT_FILE.tmp" 2>/dev/null && mv "$SPRINT_FILE.tmp" "$SPRINT_FILE" || true
+    rmdir "$LOCK_DIR" 2>/dev/null || true
+  fi
 }
 trap rollback ERR
 
@@ -138,12 +217,11 @@ git checkout -b "$BRANCH_NAME" 2>/dev/null || {
 }
 
 # Write branch name back to sprint file
-(
-  flock -w 5 -x 200
-  jq --argjson id "$TASK_ID" --arg branch "$BRANCH_NAME" \
-    '(.tasks[] | select(.id == $id)).branch = $branch' \
-    "$SPRINT_FILE" > "$SPRINT_FILE.tmp" && mv "$SPRINT_FILE.tmp" "$SPRINT_FILE"
-) 200>"$LOCK_FILE"
+acquire_lock 10
+jq --argjson id "$TASK_ID" --arg branch "$BRANCH_NAME" \
+  '(.tasks[] | select(.id == $id)).branch = $branch' \
+  "$SPRINT_FILE" > "$SPRINT_FILE.tmp" && mv "$SPRINT_FILE.tmp" "$SPRINT_FILE"
+release_lock
 
 echo "Created branch: $BRANCH_NAME"
 
@@ -186,6 +264,9 @@ for _candidate in \
   fi
 done
 
+# Resolve lock dir path relative to .context for use in sprint-task command
+LOCK_DIR_REL=".context/.sprint.lockdir"
+
 for COMMANDS_DIR in "${COMMANDS_TARGETS[@]}"; do
   mkdir -p "$COMMANDS_DIR"
   cat > "$COMMANDS_DIR/sprint-task.md" << SPRINT_TASK_EOF
@@ -207,8 +288,8 @@ Instructions:
    "Approve start implementation for task ${TASK_ID}? (yes/no)"
 4. Do NOT implement anything until the user clearly approves.
 5. After approval, implement only this task's scope.
-6. When implementation is complete, update the task status to "review":
-   jq --argjson id ${TASK_ID} '(.tasks[] | select(.id == \$id)).status = "review"' .context/.sprint.json > .context/.sprint.json.tmp && mv .context/.sprint.json.tmp .context/.sprint.json
+6. When implementation is complete, update the task status to "review" using a lockdir for safe concurrent access:
+   while ! mkdir ${LOCK_DIR_REL} 2>/dev/null; do sleep 0.2; done; jq --argjson id ${TASK_ID} '(.tasks[] | select(.id == \$id)).status = "review"' .context/.sprint.json > .context/.sprint.json.tmp && mv .context/.sprint.json.tmp .context/.sprint.json; rmdir ${LOCK_DIR_REL}
 7. Summarize what you changed and why.
 8. Do NOT merge or create a PR — the human reviewer will run sprint-finish when ready to close the sprint.
 SPRINT_TASK_EOF
