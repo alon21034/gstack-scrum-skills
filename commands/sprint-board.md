@@ -13,7 +13,7 @@ Output behavior:
 - `--no-open` writes HTML without opening a browser.
 - `--text` prints a text-only board to stdout (no HTML output file).
 - Include a task table with: task id, title, status, assigned workspace, branch, and elapsed time since `started_at` (or `not started`)
-- Include dependency status for all tasks that have `depends_on` fields, clearly marking `resolved` vs `blocked`
+- Include a task dependency graph based on `depends_on` (not a dependency table), visually marking `resolved` vs `blocked` edges
 - Include sprint-level progress counts: done/total, backlog, deleted, review, in-progress, pending
 - In HTML mode, return the absolute output path.
 

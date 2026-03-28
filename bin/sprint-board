@@ -283,6 +283,7 @@ python3 - "$SPRINT_FILE" "$OUTPUT_FILE" <<'PY'
 import html
 import json
 import sys
+from collections import defaultdict, deque
 from datetime import datetime, timezone
 
 sprint_path, output_path = sys.argv[1], sys.argv[2]
@@ -341,6 +342,12 @@ def task_sort_key(task):
     except Exception:
         return (1, str(task_id))
 
+def node_sort_key(task_id):
+    try:
+        return (0, int(task_id))
+    except Exception:
+        return (1, str(task_id))
+
 def status_class(status):
     return {
         "done": "done",
@@ -366,11 +373,177 @@ def status_counts(items):
             counts[status] += 1
     return counts
 
+def graph_status_style(status):
+    return {
+        "done": ("#ecfdf5", "#0f766e"),
+        "backlog": ("#f3e8ff", "#7c3aed"),
+        "deleted": ("#fee2e2", "#b91c1c"),
+        "review": ("#dbeafe", "#1d4ed8"),
+        "in-progress": ("#ffedd5", "#c2410c"),
+        "pending": ("#f3f4f6", "#6b7280"),
+        "missing": ("#fee2e2", "#b91c1c"),
+    }.get(status, ("#e2e8f0", "#334155"))
+
+def ellipsize(text, max_len):
+    clean = as_text(text, "")
+    if len(clean) <= max_len:
+        return clean
+    return clean[: max_len - 1] + "..."
+
+def build_dependency_graph_svg(tasks_sorted, id_to_status):
+    status_by_key = {str(task_id): status for task_id, status in id_to_status.items() if task_id is not None}
+    nodes = {}
+    edges = []
+    adjacency = defaultdict(list)
+    in_degree = defaultdict(int)
+
+    for task in tasks_sorted:
+        key = str(task.get("id"))
+        nodes[key] = {
+            "id": as_text(task.get("id")),
+            "title": as_text(task.get("title")),
+            "status": as_text(task.get("status"), "unknown"),
+            "missing": False,
+        }
+        in_degree.setdefault(key, 0)
+
+    for task in tasks_sorted:
+        target_key = str(task.get("id"))
+        for dep in (task.get("depends_on") or []):
+            dep_key = str(dep)
+            dep_exists = dep_key in nodes
+            dep_status = status_by_key.get(dep_key)
+
+            if not dep_exists:
+                nodes[dep_key] = {
+                    "id": as_text(dep),
+                    "title": "Missing dependency task",
+                    "status": "missing",
+                    "missing": True,
+                }
+                in_degree.setdefault(dep_key, 0)
+
+            edge_state = "resolved" if dep_exists and dep_status == "done" else "blocked"
+            edges.append({"source": dep_key, "target": target_key, "state": edge_state})
+            adjacency[dep_key].append(target_key)
+            in_degree[target_key] += 1
+
+    for key in nodes:
+        adjacency.setdefault(key, [])
+        in_degree.setdefault(key, 0)
+
+    working_degrees = dict(in_degree)
+    queue = deque(sorted((key for key, degree in working_degrees.items() if degree == 0), key=node_sort_key))
+    levels = {key: 0 for key in queue}
+
+    while queue:
+        current = queue.popleft()
+        current_level = levels.get(current, 0)
+        for nxt in sorted(adjacency[current], key=node_sort_key):
+            levels[nxt] = max(levels.get(nxt, 0), current_level + 1)
+            working_degrees[nxt] -= 1
+            if working_degrees[nxt] == 0:
+                queue.append(nxt)
+
+    unresolved = sorted((key for key, degree in working_degrees.items() if degree > 0), key=node_sort_key)
+    if unresolved:
+        cycle_level = max(levels.values(), default=0) + 1
+        for key in unresolved:
+            levels[key] = cycle_level
+
+    columns = defaultdict(list)
+    for key in nodes:
+        columns[levels.get(key, 0)].append(key)
+
+    ordered_columns = sorted(columns)
+    for level in ordered_columns:
+        columns[level].sort(key=node_sort_key)
+
+    node_w = 240
+    node_h = 72
+    col_gap = 96
+    row_gap = 24
+    pad = 24
+
+    column_heights = {
+        level: (len(columns[level]) * node_h) + (max(0, len(columns[level]) - 1) * row_gap)
+        for level in ordered_columns
+    }
+    inner_h = max(column_heights.values(), default=node_h)
+    graph_h = inner_h + (pad * 2)
+    graph_w = (pad * 2) + (len(ordered_columns) * node_w) + (max(0, len(ordered_columns) - 1) * col_gap)
+
+    positions = {}
+    for idx, level in enumerate(ordered_columns):
+        x = pad + (idx * (node_w + col_gap))
+        col_h = column_heights[level]
+        y0 = pad + ((inner_h - col_h) / 2.0)
+        for row_idx, key in enumerate(columns[level]):
+            y = y0 + (row_idx * (node_h + row_gap))
+            positions[key] = (x, y)
+
+    svg_parts = [
+        f"<svg class='dep-svg' viewBox='0 0 {graph_w} {graph_h}' role='img' aria-label='Sprint dependency graph'>",
+        "<defs>",
+        "<marker id='arrow-resolved' markerWidth='10' markerHeight='7' refX='8' refY='3.5' orient='auto'>",
+        "<polygon points='0 0, 10 3.5, 0 7' fill='#166534' />",
+        "</marker>",
+        "<marker id='arrow-blocked' markerWidth='10' markerHeight='7' refX='8' refY='3.5' orient='auto'>",
+        "<polygon points='0 0, 10 3.5, 0 7' fill='#b91c1c' />",
+        "</marker>",
+        "</defs>",
+    ]
+
+    for edge in edges:
+        src_x, src_y = positions[edge["source"]]
+        dst_x, dst_y = positions[edge["target"]]
+        x1 = src_x + node_w
+        y1 = src_y + (node_h / 2.0)
+        x2 = dst_x
+        y2 = dst_y + (node_h / 2.0)
+        dx = max(48, abs(x2 - x1) * 0.5)
+        c1x = x1 + dx
+        c2x = x2 - dx
+        state = edge["state"]
+        stroke = "#166534" if state == "resolved" else "#b91c1c"
+        marker = "arrow-resolved" if state == "resolved" else "arrow-blocked"
+        svg_parts.append(
+            f"<path d='M {x1:.1f} {y1:.1f} C {c1x:.1f} {y1:.1f}, {c2x:.1f} {y2:.1f}, {x2:.1f} {y2:.1f}' "
+            f"stroke='{stroke}' stroke-width='2.3' fill='none' marker-end='url(#{marker})' opacity='0.9' />"
+        )
+
+    for key in sorted(nodes, key=node_sort_key):
+        node = nodes[key]
+        x, y = positions[key]
+        fill, border = graph_status_style(node["status"])
+        id_line = f"Task {node['id']}"
+        title_line = ellipsize(node["title"], 32)
+        status_line = "MISSING" if node["missing"] else as_text(node["status"], "unknown").upper()
+        text_color = "#0f172a"
+        svg_parts.append(
+            f"<g transform='translate({x:.1f},{y:.1f})'>"
+            f"<rect width='{node_w}' height='{node_h}' rx='12' ry='12' fill='{fill}' stroke='{border}' stroke-width='2' />"
+            f"<text x='12' y='22' font-size='12' font-weight='700' fill='{text_color}'>{html.escape(id_line)}</text>"
+            f"<text x='12' y='42' font-size='13' font-weight='600' fill='{text_color}'>{html.escape(title_line)}</text>"
+            f"<text x='12' y='61' font-size='11' fill='{text_color}'>{html.escape(status_line)}</text>"
+            "</g>"
+        )
+
+    svg_parts.append("</svg>")
+
+    stats = {
+        "total": len(edges),
+        "resolved": sum(1 for edge in edges if edge["state"] == "resolved"),
+        "blocked": sum(1 for edge in edges if edge["state"] == "blocked"),
+        "missing_nodes": sum(1 for node in nodes.values() if node["missing"]),
+    }
+    return "".join(svg_parts), stats
+
 tasks_sorted = sorted(tasks, key=task_sort_key)
 counts = status_counts(tasks_sorted)
+dependency_graph_svg, dependency_stats = build_dependency_graph_svg(tasks_sorted, id_to_status)
 
 task_rows = []
-dependency_rows = []
 
 for task in tasks_sorted:
     task_id = task.get("id")
@@ -391,31 +564,6 @@ for task in tasks_sorted:
         "</tr>"
     )
 
-    deps = task.get("depends_on") or []
-    if deps:
-        dep_details = []
-        all_resolved = True
-        for dep in deps:
-            dep_status = id_to_status.get(dep)
-            if dep_status is None:
-                all_resolved = False
-                dep_details.append(f"{dep} (missing)")
-            else:
-                if dep_status != "done":
-                    all_resolved = False
-                dep_details.append(f"{dep} ({dep_status})")
-
-        dep_state = "resolved" if all_resolved else "blocked"
-        dependency_rows.append(
-            "<tr>"
-            f"<td>{html.escape(as_text(task_id))}</td>"
-            f"<td>{html.escape(title)}</td>"
-            f"<td>{html.escape(', '.join(str(dep) for dep in deps))}</td>"
-            f"<td>{html.escape(', '.join(dep_details))}</td>"
-            f"<td><span class='badge {dep_state}'>{dep_state}</span></td>"
-            "</tr>"
-        )
-
 summary = (
     f"{counts['done']}/{len(tasks_sorted)} done"
     f" | {counts['backlog']} backlog"
@@ -428,6 +576,11 @@ summary = (
 generated_at = now.strftime("%Y-%m-%d %H:%M:%S UTC")
 sprint_topic = as_text(sprint.get("topic"), "(untitled sprint)")
 sprint_status = as_text(sprint.get("status"), "unknown").upper()
+dependency_summary = (
+    f"{dependency_stats['resolved']} resolved"
+    f" | {dependency_stats['blocked']} blocked"
+    f" | {dependency_stats['missing_nodes']} missing refs"
+)
 
 html_doc = f"""<!doctype html>
 <html lang=\"en\">
@@ -543,6 +696,26 @@ html_doc = f"""<!doctype html>
     .resolved {{ background: var(--resolved); }}
     .blocked {{ background: var(--blocked); }}
     .unknown {{ background: #334155; }}
+    .graph-wrap {{
+      width: 100%;
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #fff;
+    }}
+    .dep-svg {{
+      display: block;
+      width: 100%;
+      min-width: 740px;
+      height: auto;
+      background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    }}
+    .graph-summary {{
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 600;
+    }}
     .empty {{
       margin: 0;
       color: var(--muted);
@@ -599,7 +772,9 @@ html_doc = f"""<!doctype html>
 
     <section class=\"card\">
       <h2>Dependencies</h2>
-      {('<div class="table-wrap"><table><thead><tr><th>Task ID</th><th>Task</th><th>depends_on</th><th>Dependency Status</th><th>State</th></tr></thead><tbody>' + ''.join(dependency_rows) + '</tbody></table></div>') if dependency_rows else '<p class="empty">No dependency constraints in this sprint.</p>'}
+      <p class=\"graph-summary\">{html.escape(dependency_summary)}</p>
+      <div class=\"graph-wrap\">{dependency_graph_svg}</div>
+      {'<p class="empty" style="margin-top:10px;">No dependency edges found. Tasks are currently independent.</p>' if dependency_stats['total'] == 0 else ''}
     </section>
   </main>
 </body>

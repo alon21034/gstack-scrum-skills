@@ -366,7 +366,7 @@ Instructions:
 5. Do NOT implement anything until the user clearly approves.
 6. After approval, implement only this task's scope.
 7. When implementation is complete, update the task status to "review" using a lockdir for safe concurrent access:
-   while ! mkdir ${LOCK_DIR_REL} 2>/dev/null; do sleep 0.2; done; jq --argjson id ${TASK_ID} '(.tasks[] | select(.id == \$id)).status = "review"' .context/.sprint.json > .context/.sprint.json.tmp && mv .context/.sprint.json.tmp .context/.sprint.json; rmdir ${LOCK_DIR_REL}
+   while ! mkdir ${LOCK_DIR_REL} 2>/dev/null; do sleep 0.2; done; jq --argjson id ${TASK_ID} '(.tasks[] | select(.id == \$id)).status = "review"' .context/.sprint.json > .context/.sprint.json.tmp && mv .context/.sprint.json.tmp .context/.sprint.json; rmdir ${LOCK_DIR_REL}; sprint-board .context/.sprint.json >/dev/null 2>&1 || ./bin/sprint-board .context/.sprint.json >/dev/null 2>&1
 8. Summarize what you changed and why.
 9. Do NOT merge or create a PR — the human reviewer will run sprint-finish when ready to close the sprint.
 SPRINT_TASK_EOF
