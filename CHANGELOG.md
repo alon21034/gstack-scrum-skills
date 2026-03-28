@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.3.0 - 2026-03-29
+
+### Added
+
+- Design doc sourcing and acceptance criteria support (#20).
+
+### Changed
+
+- Removed workspace coupling from sprint configuration (#20).
+
 ## 0.2.0 - 2026-03-28
 
 ### Added
