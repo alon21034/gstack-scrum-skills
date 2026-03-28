@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.2.0 - 2026-03-28
+
+### Added
+
+- HTML sprint board with dependency graph rendering and auto-refresh (#16).
+- `sprint-upgrade` command for self-upgrading the sprint skills package (#14).
+- Upgrade checks: sprint commands now warn when a newer version is available (#18).
+- POSIX-compatible `mkdir`-based file locking, replacing `flock` for broader compatibility (#14).
+
+### Improved
+
+- Sprint blocker and board UX: clearer status indicators and interaction flow (#17).
+- Pending/blocked tasks now prompt the user with a 20-minute retry window and timeout messaging (#14).
+
+### Fixed
+
+- Blocked sprint tasks are correctly kept in pending state instead of being skipped (#15).
+- Sprint file (`.sprint.json`) now written to `.context/` shared directory so Conductor workspaces can read it (#13).
+- Installer copies `sprint-board` and `sprint-finish` commands into each workspace (#13).
+
 ## 0.1.3 - 2026-03-28
 
 ### Fixed
