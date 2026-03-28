@@ -33,8 +33,9 @@ command -v flock >/dev/null 2>&1 || {
   exit 1
 }
 
-SPRINT_FILE="$ROOT_PATH/.sprint.json"
-LOCK_FILE="$ROOT_PATH/.sprint.lock"
+CONTEXT_DIR="$ROOT_PATH/.context"
+SPRINT_FILE="$CONTEXT_DIR/.sprint.json"
+LOCK_FILE="$CONTEXT_DIR/.sprint.lock"
 
 # Validate sprint file exists and is valid JSON
 [ -f "$SPRINT_FILE" ] || {
@@ -173,10 +174,22 @@ if [ "${#COMMANDS_TARGETS[@]}" -eq 0 ]; then
   add_commands_target ".claude/commands"
 fi
 
+# Resolve the sprint skill install directory for copying command files
+SPRINT_SKILL_DIR=""
+for _candidate in \
+  "$(dirname "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")")" \
+  "$HOME/.codex/skills/sprint" \
+  "$HOME/.claude/skills/sprint"; do
+  if [ -f "$_candidate/commands/sprint-board.md" ]; then
+    SPRINT_SKILL_DIR="$_candidate"
+    break
+  fi
+done
+
 for COMMANDS_DIR in "${COMMANDS_TARGETS[@]}"; do
   mkdir -p "$COMMANDS_DIR"
   cat > "$COMMANDS_DIR/sprint-task.md" << SPRINT_TASK_EOF
-Read the task assigned to this workspace from .sprint.json (task id: ${TASK_ID}).
+Read the task assigned to this workspace from .context/.sprint.json (task id: ${TASK_ID}).
 Your sprint: ${SPRINT_TOPIC}
 Your task: ${TASK_TITLE}
 
@@ -184,7 +197,7 @@ Full task description:
 ${TASK_DESC}
 
 Instructions:
-1. Read .sprint.json to understand the full sprint context and what other agents are working on.
+1. Read .context/.sprint.json to understand the full sprint context and what other agents are working on.
 2. First, show the user a short task brief:
    - sprint topic
    - task id and title
@@ -195,12 +208,22 @@ Instructions:
 4. Do NOT implement anything until the user clearly approves.
 5. After approval, implement only this task's scope.
 6. When implementation is complete, update the task status to "review":
-   jq --argjson id ${TASK_ID} '(.tasks[] | select(.id == \$id)).status = "review"' .sprint.json > .sprint.json.tmp && mv .sprint.json.tmp .sprint.json
+   jq --argjson id ${TASK_ID} '(.tasks[] | select(.id == \$id)).status = "review"' .context/.sprint.json > .context/.sprint.json.tmp && mv .context/.sprint.json.tmp .context/.sprint.json
 7. Summarize what you changed and why.
 8. Do NOT merge or create a PR — the human reviewer will run sprint-finish when ready to close the sprint.
 SPRINT_TASK_EOF
 
   echo "Wrote /sprint-task slash command to $COMMANDS_DIR/sprint-task.md"
+
+  # Install sprint-board and sprint-finish commands so they're available in each workspace
+  if [ -n "$SPRINT_SKILL_DIR" ]; then
+    for cmd in sprint-board sprint-finish; do
+      if [ -f "$SPRINT_SKILL_DIR/commands/$cmd.md" ]; then
+        cp "$SPRINT_SKILL_DIR/commands/$cmd.md" "$COMMANDS_DIR/$cmd.md"
+        echo "Wrote /$cmd slash command to $COMMANDS_DIR/$cmd.md"
+      fi
+    done
+  fi
 done
 
 # Write prompt file for conductor.json run script auto-invocation

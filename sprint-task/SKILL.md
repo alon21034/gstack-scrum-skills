@@ -18,7 +18,7 @@ PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 ROOT="${CONDUCTOR_ROOT_PATH:-$(git rev-parse --show-toplevel)}"
 WS="${CONDUCTOR_WORKSPACE_NAME:-$(basename "$PWD")}"
-SPRINT_FILE="$ROOT/.sprint.json"
+SPRINT_FILE="$ROOT/.context/.sprint.json"
 
 if [ ! -f "$SPRINT_FILE" ]; then
   echo "ERROR: No sprint file found at $SPRINT_FILE. Run /sprint first."
@@ -78,4 +78,4 @@ Then:
 3. Do not start implementation until user explicitly approves.
 4. If approved, implement only this task scope.
 5. When done, set task to review:
-   `jq --argjson id <TASK_ID> '(.tasks[] | select(.id == $id)).status = "review"' .sprint.json > .sprint.json.tmp && mv .sprint.json.tmp .sprint.json`
+   `jq --argjson id <TASK_ID> '(.tasks[] | select(.id == $id)).status = "review"' .context/.sprint.json > .context/.sprint.json.tmp && mv .context/.sprint.json.tmp .context/.sprint.json`

@@ -18,7 +18,8 @@ set -euo pipefail
 PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 ROOT="${CONDUCTOR_ROOT_PATH:-$(git rev-parse --show-toplevel)}"
-SPRINT_FILE="$ROOT/.sprint.json"
+mkdir -p "$ROOT/.context"
+SPRINT_FILE="$ROOT/.context/.sprint.json"
 CONDUCTOR_JSON="$ROOT/conductor.json"
 
 echo "ROOT=$ROOT"

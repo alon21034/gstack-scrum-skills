@@ -1,7 +1,7 @@
 ---
 name: sprint
 preamble-tier: 2
-version: 0.1.0
+version: 0.1.4
 description: |
   Lightweight Scrum coordination for multi-agent development with Conductor.
   Decomposes a sprint topic into tasks, writes .sprint.json, and configures
@@ -404,7 +404,8 @@ Determine the sprint file location:
 # Prefer $CONDUCTOR_ROOT_PATH (shared across all workspaces)
 # Fall back to git repo root if running outside Conductor
 SPRINT_DIR="${CONDUCTOR_ROOT_PATH:-$(git rev-parse --show-toplevel 2>/dev/null)}"
-SPRINT_FILE="$SPRINT_DIR/.sprint.json"
+mkdir -p "$SPRINT_DIR/.context"
+SPRINT_FILE="$SPRINT_DIR/.context/.sprint.json"
 echo "SPRINT_FILE: $SPRINT_FILE"
 ```
 

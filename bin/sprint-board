@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # sprint-board — Live terminal sprint board using watch + jq
 # Usage: sprint-board [path-to-sprint-file]
-# Default sprint file: .sprint.json in current directory
+# Default sprint file: .context/.sprint.json in current directory
 # Requires: jq, watch (macOS: brew install watch)
 #
 # Shows a live-updating table of all tasks with their current status,
@@ -9,7 +9,7 @@
 
 set -euo pipefail
 
-SPRINT_FILE="${1:-.sprint.json}"
+SPRINT_FILE="${1:-.context/.sprint.json}"
 
 # Guards
 command -v jq >/dev/null 2>&1 || {

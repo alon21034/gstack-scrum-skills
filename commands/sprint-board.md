@@ -2,7 +2,7 @@
 description: Render a sprint board snapshot from .sprint.json
 ---
 
-Read .sprint.json in the current directory (or $CONDUCTOR_ROOT_PATH/.sprint.json if set) and render a snapshot of the sprint board as a formatted table.
+Read .sprint.json from the Conductor shared context directory ($CONDUCTOR_ROOT_PATH/.context/.sprint.json, or .context/.sprint.json in the current directory) and render a snapshot of the sprint board as a formatted table.
 
 Show for each task: task id, title, status, assigned workspace, branch, and time elapsed since started_at (or "not started" if null).
 
