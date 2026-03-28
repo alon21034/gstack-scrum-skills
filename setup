@@ -265,13 +265,16 @@ REQUIRED_FILES=(
   "sprint-task/SKILL.md"
   "sprint-board/SKILL.md"
   "sprint-finish/SKILL.md"
+  "sprint-upgrade/SKILL.md"
   "bin/sprint-setup"
   "bin/sprint-board"
   "bin/sprint-finish"
+  "bin/sprint-upgrade"
   "commands/sprint.md"
   "commands/sprint-task.md"
   "commands/sprint-board.md"
   "commands/sprint-finish.md"
+  "commands/sprint-upgrade.md"
 )
 
 for rel in "${REQUIRED_FILES[@]}"; do
@@ -284,28 +287,32 @@ done
 for i in "${!TARGET_HOSTS[@]}"; do
   target_skill_root="${TARGET_SKILL_ROOTS[$i]}"
   target_commands_dir="${TARGET_COMMANDS_DIRS[$i]}"
-  run mkdir -p "$target_skill_root/sprint" "$target_skill_root/sprint-task" "$target_skill_root/sprint-board" "$target_skill_root/sprint-finish" "$target_skill_root/bin" "$target_commands_dir"
+  run mkdir -p "$target_skill_root/sprint" "$target_skill_root/sprint-task" "$target_skill_root/sprint-board" "$target_skill_root/sprint-finish" "$target_skill_root/sprint-upgrade" "$target_skill_root/bin" "$target_commands_dir"
 
   install_file 0644 "$SCRIPT_DIR/sprint/SKILL.md" "$target_skill_root/sprint/SKILL.md"
   install_file 0644 "$SCRIPT_DIR/sprint/SKILL.md.tmpl" "$target_skill_root/sprint/SKILL.md.tmpl"
   install_file 0644 "$SCRIPT_DIR/sprint-task/SKILL.md" "$target_skill_root/sprint-task/SKILL.md"
   install_file 0644 "$SCRIPT_DIR/sprint-board/SKILL.md" "$target_skill_root/sprint-board/SKILL.md"
   install_file 0644 "$SCRIPT_DIR/sprint-finish/SKILL.md" "$target_skill_root/sprint-finish/SKILL.md"
+  install_file 0644 "$SCRIPT_DIR/sprint-upgrade/SKILL.md" "$target_skill_root/sprint-upgrade/SKILL.md"
 
   install_file 0755 "$SCRIPT_DIR/bin/sprint-setup" "$target_skill_root/bin/sprint-setup"
   install_file 0755 "$SCRIPT_DIR/bin/sprint-board" "$target_skill_root/bin/sprint-board"
   install_file 0755 "$SCRIPT_DIR/bin/sprint-finish" "$target_skill_root/bin/sprint-finish"
+  install_file 0755 "$SCRIPT_DIR/bin/sprint-upgrade" "$target_skill_root/bin/sprint-upgrade"
 
   install_file 0644 "$SCRIPT_DIR/commands/sprint.md" "$target_commands_dir/sprint.md"
   install_file 0644 "$SCRIPT_DIR/commands/sprint-board.md" "$target_commands_dir/sprint-board.md"
   install_file 0644 "$SCRIPT_DIR/commands/sprint-finish.md" "$target_commands_dir/sprint-finish.md"
   install_file 0644 "$SCRIPT_DIR/commands/sprint-task.md" "$target_commands_dir/sprint-task.md"
+  install_file 0644 "$SCRIPT_DIR/commands/sprint-upgrade.md" "$target_commands_dir/sprint-upgrade.md"
 
   # Create top-level skill aliases so hosts that only scan one directory level
   # can discover these as independent skills.
   link_skill_alias "$target_skill_root" "sprint-task"
   link_skill_alias "$target_skill_root" "sprint-board"
   link_skill_alias "$target_skill_root" "sprint-finish"
+  link_skill_alias "$target_skill_root" "sprint-upgrade"
 done
 
 if $DRY_RUN; then
@@ -326,10 +333,10 @@ done)
 
 Quick checks:
 $(for i in "${!TARGET_HOSTS[@]}"; do
-  printf "  ls %s/bin/sprint-{setup,board,finish}\n" "${TARGET_SKILL_ROOTS[$i]}"
+  printf "  ls %s/bin/sprint-{setup,board,finish,upgrade}\n" "${TARGET_SKILL_ROOTS[$i]}"
   printf "  ls %s/sprint/SKILL.md\n" "${TARGET_SKILL_ROOTS[$i]}"
-  printf "  ls %s/sprint-{task,board,finish}/SKILL.md\n" "${TARGET_SKILL_ROOTS[$i]}"
-  printf "  ls %s/sprint-{task,board,finish}\n" "$(dirname "${TARGET_SKILL_ROOTS[$i]}")"
-  printf "  ls %s/sprint{,-task,-board,-finish}.md\n" "${TARGET_COMMANDS_DIRS[$i]}"
+  printf "  ls %s/sprint-{task,board,finish,upgrade}/SKILL.md\n" "${TARGET_SKILL_ROOTS[$i]}"
+  printf "  ls %s/sprint-{task,board,finish,upgrade}\n" "$(dirname "${TARGET_SKILL_ROOTS[$i]}")"
+  printf "  ls %s/sprint{,-task,-board,-finish,-upgrade}.md\n" "${TARGET_COMMANDS_DIRS[$i]}"
 done)
 EOF

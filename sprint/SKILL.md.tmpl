@@ -34,8 +34,55 @@ When the user types `/sprint`, run this skill.
 ## Prerequisites
 - Conductor installed (https://docs.conductor.build/)
 - `jq` installed (`brew install jq`)
-- `watch` installed for live board (`brew install watch`)
+- `python3` available (required for HTML sprint board generation)
 - gstack sprint-setup script at `~/.codex/skills/gstack/bin/sprint-setup` (fallback: `~/.claude/skills/gstack/bin/sprint-setup`)
+
+---
+
+## Step 0: Check sprint version freshness
+
+Before doing any sprint planning, check whether the sprint tooling is up to date.
+
+Run:
+
+```bash
+SPRINT_TOOL_ROOT=""
+for _candidate in \
+  "${CONDUCTOR_ROOT_PATH:-}" \
+  "$HOME/.codex/skills/sprint" \
+  "$HOME/.claude/skills/sprint"; do
+  [ -n "$_candidate" ] || continue
+  if [ -f "$_candidate/setup" ] && git -C "$_candidate" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    SPRINT_TOOL_ROOT="$_candidate"
+    break
+  fi
+done
+
+if [ -n "$SPRINT_TOOL_ROOT" ]; then
+  UPSTREAM="$(git -C "$SPRINT_TOOL_ROOT" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)"
+  LOCAL_VERSION="$(cat "$SPRINT_TOOL_ROOT/VERSION" 2>/dev/null || echo unknown)"
+  if [ -n "$UPSTREAM" ]; then
+    git -C "$SPRINT_TOOL_ROOT" fetch --quiet || true
+    BEHIND="$(git -C "$SPRINT_TOOL_ROOT" rev-list --count HEAD..@{u} 2>/dev/null || echo unknown)"
+  else
+    BEHIND="unknown"
+  fi
+else
+  LOCAL_VERSION="unknown"
+  BEHIND="unknown"
+fi
+
+echo "SPRINT_TOOL_ROOT=${SPRINT_TOOL_ROOT:-none}"
+echo "SPRINT_TOOL_LOCAL_VERSION=$LOCAL_VERSION"
+echo "SPRINT_TOOL_BEHIND=$BEHIND"
+```
+
+If `SPRINT_TOOL_BEHIND` is a number greater than `0`, use AskUserQuestion:
+"Sprint tooling is behind by {SPRINT_TOOL_BEHIND} commit(s). Upgrade now with `/sprint-upgrade` before continuing? (yes/no)"
+
+- If user says yes: run `/sprint-upgrade`, then continue.
+- If user says no: continue `/sprint` without upgrading.
+- If version freshness is unknown: continue, but note that latest-version verification was not available.
 
 ---
 
@@ -118,6 +165,11 @@ SPRINT_FILE="$SPRINT_DIR/.context/.sprint.json"
 echo "SPRINT_FILE: $SPRINT_FILE"
 ```
 
+Hard constraint:
+- Always write the sprint output to `"$SPRINT_DIR/.context/.sprint.json"`.
+- Never write sprint output to any path outside `.context`.
+- Ignore any user-supplied alternate output path and continue with the fixed `.context` path.
+
 If an existing sprint file is found and has `status: "active"`, use AskUserQuestion:
 "An active sprint already exists (`{sprint.topic}`, {N} tasks, {M} done). Options:
 A) Archive it and start a new sprint (recommended)
@@ -198,16 +250,14 @@ Topic: {topic}
 Tasks: {N} ({M} parallel, {K} sequential)
 
 Sprint board:
-  sprint-board {sprint-file-path}
+  sprint-board {sprint-file-path} --open
 
 Next steps:
   1. Open Conductor
   2. Press ⌘+K {N} times (once per task)
      Each workspace will auto-claim a task and start executing.
-  3. Watch the board: sprint-board {sprint-file-path}
+  3. Open the board: sprint-board {sprint-file-path} --open
   4. When implementation/review is complete, run: sprint-finish
-
-Tip: Install watch if you haven't: brew install watch
 ```
 
 ---

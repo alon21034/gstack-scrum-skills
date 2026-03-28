@@ -1,75 +1,454 @@
 #!/usr/bin/env bash
-# sprint-board — Live terminal sprint board using watch + jq
-# Usage: sprint-board [path-to-sprint-file]
-# Default sprint file: .context/.sprint.json in current directory
-# Requires: jq, watch (macOS: brew install watch)
-#
-# Shows a live-updating table of all tasks with their current status,
-# assigned workspace, and sprint progress. Refreshes every 3 seconds.
+# sprint-board — Generate an HTML sprint dashboard from .sprint.json
+# Usage: sprint-board [path-to-sprint-file] [--output path] [--open]
+# Default sprint file resolution:
+#   1) $CONDUCTOR_ROOT_PATH/.context/.sprint.json (if set and exists)
+#   2) .context/.sprint.json in current directory
+# Default output file: <sprint-file-dir>/sprint-board.html
 
 set -euo pipefail
 
-SPRINT_FILE="${1:-.context/.sprint.json}"
+usage() {
+  cat <<'USAGE'
+Usage: sprint-board [path-to-sprint-file] [--output path] [--open]
 
-# Guards
-command -v jq >/dev/null 2>&1 || {
-  echo "ERROR: jq is required. Install with: brew install jq" >&2
+Options:
+  --output <path>   Write HTML to this file path.
+  --open            Open generated HTML in the default browser.
+  -h, --help        Show this help.
+USAGE
+}
+
+SPRINT_FILE_ARG=""
+OUTPUT_FILE=""
+AUTO_OPEN=0
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --output)
+      if [ "$#" -lt 2 ]; then
+        echo "ERROR: --output requires a file path" >&2
+        exit 1
+      fi
+      OUTPUT_FILE="$2"
+      shift
+      ;;
+    --open)
+      AUTO_OPEN=1
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -*)
+      echo "ERROR: Unknown option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+    *)
+      if [ -n "$SPRINT_FILE_ARG" ]; then
+        echo "ERROR: Unexpected extra argument: $1" >&2
+        usage >&2
+        exit 1
+      fi
+      SPRINT_FILE_ARG="$1"
+      ;;
+  esac
+  shift
+done
+
+command -v python3 >/dev/null 2>&1 || {
+  echo "ERROR: python3 is required." >&2
   exit 1
 }
 
-command -v watch >/dev/null 2>&1 || {
-  echo "ERROR: 'watch' is required for the live board." >&2
-  echo "Install it with: brew install watch" >&2
-  exit 1
+resolve_sprint_file() {
+  if [ -n "$SPRINT_FILE_ARG" ]; then
+    if [ -f "$SPRINT_FILE_ARG" ]; then
+      echo "$SPRINT_FILE_ARG"
+      return 0
+    fi
+    return 1
+  fi
+
+  if [ -n "${CONDUCTOR_ROOT_PATH:-}" ] && [ -f "$CONDUCTOR_ROOT_PATH/.context/.sprint.json" ]; then
+    echo "$CONDUCTOR_ROOT_PATH/.context/.sprint.json"
+    return 0
+  fi
+
+  if [ -f ".context/.sprint.json" ]; then
+    echo ".context/.sprint.json"
+    return 0
+  fi
+
+  return 1
 }
 
-[ -f "$SPRINT_FILE" ] || {
-  echo "ERROR: Sprint file not found: $SPRINT_FILE" >&2
-  echo "Usage: sprint-board [path-to-sprint-file]" >&2
-  echo "Run /sprint in a CC session to create a sprint first." >&2
+if ! SPRINT_FILE="$(resolve_sprint_file)"; then
+  echo "No active sprint found. Run /sprint to start one."
   exit 1
-}
+fi
 
-jq empty "$SPRINT_FILE" 2>/dev/null || {
-  echo "ERROR: Sprint file is not valid JSON: $SPRINT_FILE" >&2
-  exit 1
-}
+SPRINT_FILE="$(cd "$(dirname "$SPRINT_FILE")" && pwd)/$(basename "$SPRINT_FILE")"
 
-# Use absolute path so watch can find the file from any cwd
-SPRINT_FILE=$(cd "$(dirname "$SPRINT_FILE")" && pwd)/$(basename "$SPRINT_FILE")
+if [ -z "$OUTPUT_FILE" ]; then
+  OUTPUT_FILE="$(dirname "$SPRINT_FILE")/sprint-board.html"
+fi
 
-watch -n 3 "jq -r '
-  \"═══════════════════════════════════════════════════════════════\",
-  (\"  SPRINT: \" + .sprint.topic + \"  [\" + (.sprint.status | ascii_upcase) + \"]  \" + (.tasks | length | tostring) + \" tasks\"),
-  \"═══════════════════════════════════════════════════════════════\",
-  \"  #   TITLE                       STATUS          WORKSPACE\",
-  \"───────────────────────────────────────────────────────────────\",
-  (.tasks[] |
-    \"  \" +
-    ((.id | tostring) | . + (\" \" * (4 - length))) +
-    (.title | .[0:26] | . + (\" \" * (26 - length))) +
-    \"  \" +
-    (.status | ascii_upcase | .[0:14] | . + (\" \" * (14 - length))) +
-    \"  \" +
-    (.workspace // \"—\")
-  ),
-  \"═══════════════════════════════════════════════════════════════\",
-  (
-    \"  Progress: \" +
-    ([.tasks[] | select(.status == \"done\")] | length | tostring) +
-    \"/\" + (.tasks | length | tostring) + \" done\" +
-    \"   \" +
-    ([.tasks[] | select(.status == \"backlog\")] | length | tostring) +
-    \" backlog\" +
-    \"   \" +
-    ([.tasks[] | select(.status == \"deleted\")] | length | tostring) +
-    \" deleted\" +
-    \"   \" +
-    ([.tasks[] | select(.status == \"review\")] | length | tostring) +
-    \" in review\" +
-    \"   \" +
-    ([.tasks[] | select(.status == \"in-progress\")] | length | tostring) +
-    \" in progress\"
-  ),
-  \"═══════════════════════════════════════════════════════════════\"
-' $SPRINT_FILE"
+mkdir -p "$(dirname "$OUTPUT_FILE")"
+OUTPUT_FILE="$(cd "$(dirname "$OUTPUT_FILE")" && pwd)/$(basename "$OUTPUT_FILE")"
+
+python3 - "$SPRINT_FILE" "$OUTPUT_FILE" <<'PY'
+import html
+import json
+import sys
+from datetime import datetime, timezone
+
+sprint_path, output_path = sys.argv[1], sys.argv[2]
+
+with open(sprint_path, "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+sprint = data.get("sprint", {})
+tasks = data.get("tasks", [])
+
+now = datetime.now(timezone.utc)
+id_to_status = {task.get("id"): task.get("status", "unknown") for task in tasks}
+
+def as_text(value, fallback="-"):
+    if value is None:
+        return fallback
+    text = str(value).strip()
+    return text if text else fallback
+
+def parse_iso(ts):
+    ts = ts.strip()
+    if ts.endswith("Z"):
+        ts = ts[:-1] + "+00:00"
+    dt = datetime.fromisoformat(ts)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+def elapsed_label(started_at):
+    if not started_at:
+        return "not started"
+
+    try:
+        start_dt = parse_iso(str(started_at))
+    except Exception:
+        return "invalid timestamp"
+
+    delta_seconds = int((now - start_dt).total_seconds())
+    if delta_seconds < 0:
+        delta_seconds = 0
+
+    days, rem = divmod(delta_seconds, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, _ = divmod(rem, 60)
+
+    if days > 0:
+        return f"{days}d {hours}h"
+    if hours > 0:
+        return f"{hours}h {minutes}m"
+    return f"{minutes}m"
+
+def task_sort_key(task):
+    task_id = task.get("id")
+    try:
+        return (0, int(task_id))
+    except Exception:
+        return (1, str(task_id))
+
+def status_class(status):
+    return {
+        "done": "done",
+        "backlog": "backlog",
+        "deleted": "deleted",
+        "review": "review",
+        "in-progress": "in-progress",
+        "pending": "pending",
+    }.get(status, "unknown")
+
+def status_counts(items):
+    counts = {
+        "done": 0,
+        "backlog": 0,
+        "deleted": 0,
+        "review": 0,
+        "in-progress": 0,
+        "pending": 0,
+    }
+    for task in items:
+        status = task.get("status")
+        if status in counts:
+            counts[status] += 1
+    return counts
+
+tasks_sorted = sorted(tasks, key=task_sort_key)
+counts = status_counts(tasks_sorted)
+
+task_rows = []
+dependency_rows = []
+
+for task in tasks_sorted:
+    task_id = task.get("id")
+    title = as_text(task.get("title"))
+    status = as_text(task.get("status"), "unknown")
+    workspace = as_text(task.get("workspace"), "-")
+    branch = as_text(task.get("branch"), "-")
+    elapsed = elapsed_label(task.get("started_at"))
+
+    task_rows.append(
+        "<tr>"
+        f"<td>{html.escape(as_text(task_id))}</td>"
+        f"<td>{html.escape(title)}</td>"
+        f"<td><span class='badge {status_class(task.get('status'))}'>{html.escape(status)}</span></td>"
+        f"<td>{html.escape(workspace)}</td>"
+        f"<td><code>{html.escape(branch)}</code></td>"
+        f"<td>{html.escape(elapsed)}</td>"
+        "</tr>"
+    )
+
+    deps = task.get("depends_on") or []
+    if deps:
+        dep_details = []
+        all_resolved = True
+        for dep in deps:
+            dep_status = id_to_status.get(dep)
+            if dep_status is None:
+                all_resolved = False
+                dep_details.append(f"{dep} (missing)")
+            else:
+                if dep_status != "done":
+                    all_resolved = False
+                dep_details.append(f"{dep} ({dep_status})")
+
+        dep_state = "resolved" if all_resolved else "blocked"
+        dependency_rows.append(
+            "<tr>"
+            f"<td>{html.escape(as_text(task_id))}</td>"
+            f"<td>{html.escape(title)}</td>"
+            f"<td>{html.escape(', '.join(str(dep) for dep in deps))}</td>"
+            f"<td>{html.escape(', '.join(dep_details))}</td>"
+            f"<td><span class='badge {dep_state}'>{dep_state}</span></td>"
+            "</tr>"
+        )
+
+summary = (
+    f"{counts['done']}/{len(tasks_sorted)} done"
+    f" | {counts['backlog']} backlog"
+    f" | {counts['deleted']} deleted"
+    f" | {counts['review']} in review"
+    f" | {counts['in-progress']} in progress"
+    f" | {counts['pending']} pending"
+)
+
+generated_at = now.strftime("%Y-%m-%d %H:%M:%S UTC")
+sprint_topic = as_text(sprint.get("topic"), "(untitled sprint)")
+sprint_status = as_text(sprint.get("status"), "unknown").upper()
+
+html_doc = f"""<!doctype html>
+<html lang=\"en\">
+<head>
+  <meta charset=\"utf-8\" />
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+  <title>Sprint Board - {html.escape(sprint_topic)}</title>
+  <style>
+    :root {{
+      --bg: #f4f7fb;
+      --card: #ffffff;
+      --text: #0f172a;
+      --muted: #475569;
+      --border: #dce3ee;
+      --accent: #1769aa;
+      --done: #0f766e;
+      --backlog: #7c3aed;
+      --deleted: #b91c1c;
+      --review: #1d4ed8;
+      --in-progress: #c2410c;
+      --pending: #6b7280;
+      --resolved: #166534;
+      --blocked: #b91c1c;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      font-family: "Avenir Next", "Segoe UI", Helvetica, Arial, sans-serif;
+      color: var(--text);
+      background: radial-gradient(1200px 500px at 0% -10%, #dce8f8 0%, var(--bg) 60%);
+    }}
+    .wrap {{
+      max-width: 1200px;
+      margin: 24px auto;
+      padding: 0 16px 24px;
+    }}
+    .hero {{
+      background: linear-gradient(135deg, #0b3d91, #1769aa);
+      color: #fff;
+      border-radius: 14px;
+      padding: 20px;
+      box-shadow: 0 12px 28px rgba(11, 61, 145, 0.2);
+    }}
+    .hero h1 {{
+      margin: 0 0 8px;
+      font-size: 28px;
+      line-height: 1.2;
+    }}
+    .meta {{
+      margin: 0;
+      font-size: 14px;
+      opacity: 0.95;
+    }}
+    .card {{
+      margin-top: 16px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+      box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+    }}
+    h2 {{ margin: 0 0 12px; font-size: 19px; }}
+    .summary {{
+      font-weight: 600;
+      color: var(--accent);
+      margin: 0;
+      word-break: break-word;
+    }}
+    .table-wrap {{
+      width: 100%;
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #fff;
+    }}
+    table {{
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 840px;
+    }}
+    th, td {{
+      text-align: left;
+      padding: 10px 12px;
+      border-bottom: 1px solid #eef2f7;
+      font-size: 14px;
+      vertical-align: top;
+    }}
+    th {{
+      background: #f8fafc;
+      color: #0f172a;
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }}
+    tr:last-child td {{ border-bottom: none; }}
+    .badge {{
+      display: inline-block;
+      border-radius: 999px;
+      padding: 3px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: #fff;
+      white-space: nowrap;
+    }}
+    .done {{ background: var(--done); }}
+    .backlog {{ background: var(--backlog); }}
+    .deleted {{ background: var(--deleted); }}
+    .review {{ background: var(--review); }}
+    .in-progress {{ background: var(--in-progress); }}
+    .pending {{ background: var(--pending); }}
+    .resolved {{ background: var(--resolved); }}
+    .blocked {{ background: var(--blocked); }}
+    .unknown {{ background: #334155; }}
+    .empty {{
+      margin: 0;
+      color: var(--muted);
+      font-style: italic;
+    }}
+    code {{
+      font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+      font-size: 12px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 2px 6px;
+      white-space: nowrap;
+    }}
+    @media (max-width: 760px) {{
+      .hero h1 {{ font-size: 22px; }}
+      th, td {{ padding: 9px 10px; font-size: 13px; }}
+    }}
+  </style>
+</head>
+<body>
+  <main class=\"wrap\">
+    <section class=\"hero\">
+      <h1>{html.escape(sprint_topic)}</h1>
+      <p class=\"meta\">Status: {html.escape(sprint_status)} | {len(tasks_sorted)} tasks | Generated: {html.escape(generated_at)}</p>
+      <p class=\"meta\">Source: <code>{html.escape(sprint_path)}</code></p>
+    </section>
+
+    <section class=\"card\">
+      <h2>Progress</h2>
+      <p class=\"summary\">{html.escape(summary)}</p>
+    </section>
+
+    <section class=\"card\">
+      <h2>Tasks</h2>
+      <div class=\"table-wrap\">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Title</th>
+              <th>Status</th>
+              <th>Workspace</th>
+              <th>Branch</th>
+              <th>Elapsed</th>
+            </tr>
+          </thead>
+          <tbody>
+            {''.join(task_rows) if task_rows else '<tr><td colspan="6">No tasks found.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class=\"card\">
+      <h2>Dependencies</h2>
+      {('<div class="table-wrap"><table><thead><tr><th>Task ID</th><th>Task</th><th>depends_on</th><th>Dependency Status</th><th>State</th></tr></thead><tbody>' + ''.join(dependency_rows) + '</tbody></table></div>') if dependency_rows else '<p class="empty">No dependency constraints in this sprint.</p>'}
+    </section>
+  </main>
+</body>
+</html>
+"""
+
+with open(output_path, "w", encoding="utf-8") as f:
+    f.write(html_doc)
+PY
+
+echo "Sprint board HTML generated: $OUTPUT_FILE"
+
+if [ "$AUTO_OPEN" -eq 1 ]; then
+  if command -v open >/dev/null 2>&1; then
+    open "$OUTPUT_FILE"
+    echo "Opened in default browser."
+    exit 0
+  fi
+
+  if command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$OUTPUT_FILE" >/dev/null 2>&1 &
+    echo "Opened in default browser."
+    exit 0
+  fi
+
+  echo "Could not auto-open browser on this system."
+fi
+
+if command -v open >/dev/null 2>&1; then
+  echo "Open with: open \"$OUTPUT_FILE\""
+else
+  echo "Open the HTML file in your browser: $OUTPUT_FILE"
+fi

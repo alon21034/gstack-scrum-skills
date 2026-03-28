@@ -19,7 +19,7 @@ Lightweight Scrum coordination layer for parallel AI development with [Conductor
 - Break one feature goal into explicit, independently executable tasks.
 - Auto-assign clear ownership so each workspace knows what to do next.
 - Keep humans in control with an explicit approval gate before implementation.
-- Expose live progress and blockers in a single terminal board.
+- Expose live progress and blockers in a single HTML board.
 - Close the sprint cleanly by resolving leftover tasks and preserving state.
 
 ### Skill Chart
@@ -28,14 +28,15 @@ Lightweight Scrum coordination layer for parallel AI development with [Conductor
 |---|---|---|
 | `/sprint` | Create sprint plan and write `.sprint.json` | Start a new parallel sprint |
 | `/sprint-task` | Claim/show one workspace task with approval gate | Manual task claiming or task review |
-| `/sprint-board` | Snapshot sprint progress table | Quick status check across workspaces |
+| `/sprint-board` | Generate HTML sprint board | Quick status check across workspaces |
 | `/sprint-finish` | Resolve remaining tasks and close sprint | End sprint and finalize statuses |
+| `/sprint-upgrade` | Upgrade sprint skills package | Refresh to latest version |
 
 Conductor note:
 
 - Codex Desktop slash commands come from `~/.codex/prompts` and show as `prompts:sprint-*`.
-- Conductor skill picker reads `SKILL.md` manifests. This package installs matching skills: `sprint-task`, `sprint-board`, `sprint-finish`.
-- Installer also creates top-level skill aliases (`~/.{codex|claude}/skills/sprint-{task,board,finish}`) so hosts that scan one level deep can discover them.
+- Conductor skill picker reads `SKILL.md` manifests. This package installs matching skills: `sprint-task`, `sprint-board`, `sprint-finish`, `sprint-upgrade`.
+- Installer also creates top-level skill aliases (`~/.{codex|claude}/skills/sprint-{task,board,finish,upgrade}`) so hosts that scan one level deep can discover them.
 
 ### Usage
 
@@ -48,8 +49,9 @@ Conductor note:
    - Auto-claim (recommended): run this repo's `./setup` first, then make sure `conductor.json` has `scripts.setup` wired to `sprint-setup` (the `/sprint` command writes this). After that, press ⌘+K once per task and each workspace auto-claims.
    - Manual claim: if `scripts.setup` is not configured for `sprint-setup`, open each workspace and run `/sprint-task` to claim/view a task.
 5. Implement after explicit approval
-6. Watch progress: `sprint-board .context/.sprint.json`
+6. Open progress board: `sprint-board .context/.sprint.json --open`
 7. When implementation/review cycle is done, run: `sprint-finish`
+8. Upgrade sprint tooling later with: `/sprint-upgrade`
 
 ### Prerequisites
 
@@ -57,7 +59,7 @@ Conductor note:
 - [gstack](https://github.com/garrytan/gstack) (optional, used for `/autoplan`-based task generation)
 - `jq` — `brew install jq`
 - `flock` — `brew install flock`
-- `watch` — `brew install watch`
+- `python3` (preinstalled on modern macOS; required to render HTML board)
 
 ### Install
 
@@ -79,11 +81,11 @@ cd ~/.codex/skills/sprint && ./setup
 3. Verify files landed in the expected locations:
 
 ```bash
-ls ~/.codex/prompts/sprint{,-task,-board,-finish}.md
-ls ~/.codex/skills/sprint/bin/sprint-{setup,board,finish}
+ls ~/.codex/prompts/sprint{,-task,-board,-finish,-upgrade}.md
+ls ~/.codex/skills/sprint/bin/sprint-{setup,board,finish,upgrade}
 ls ~/.codex/skills/sprint/sprint/SKILL.md
-ls ~/.codex/skills/sprint/sprint-{task,board,finish}/SKILL.md
-ls ~/.codex/skills/sprint-{task,board,finish}
+ls ~/.codex/skills/sprint/sprint-{task,board,finish,upgrade}/SKILL.md
+ls ~/.codex/skills/sprint-{task,board,finish,upgrade}
 ```
 
 Optional: use custom install paths:

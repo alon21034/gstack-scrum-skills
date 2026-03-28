@@ -1,27 +1,19 @@
 ---
-description: Render a sprint board snapshot from .sprint.json
+description: Generate an openable HTML sprint board from .sprint.json
 ---
 
-Read .sprint.json from the Conductor shared context directory ($CONDUCTOR_ROOT_PATH/.context/.sprint.json, or .context/.sprint.json in the current directory) and render a snapshot of the sprint board as a formatted table.
+Generate an HTML sprint status board users can open in a browser.
 
-Show for each task: task id, title, status, assigned workspace, branch, and time elapsed since started_at (or "not started" if null).
+Sprint file location rules:
+- First: `$CONDUCTOR_ROOT_PATH/.context/.sprint.json` (if `CONDUCTOR_ROOT_PATH` is set)
+- Fallback: `.context/.sprint.json` in the current directory
 
-Format the output as:
+Output behavior:
+- Write HTML to `.context/sprint-board.html` (or sibling directory of the sprint file)
+- Include a task table with: task id, title, status, assigned workspace, branch, and elapsed time since `started_at` (or `not started`)
+- Include dependency status for all tasks that have `depends_on` fields, clearly marking `resolved` vs `blocked`
+- Include sprint-level progress counts: done/total, backlog, deleted, review, in-progress, pending
+- Return the absolute output path and a one-line open command (`open <path>` on macOS)
 
-```
-═══════════════════════════════════════════════════════════════
-  SPRINT: {topic}  [STATUS]  {N} tasks
-═══════════════════════════════════════════════════════════════
-  #   TITLE                       STATUS          WORKSPACE
-───────────────────────────────────────────────────────────────
-  1   Auth middleware              IN PROGRESS     workspace-1
-  2   Login UI                     IN PROGRESS     workspace-2
-  3   Session management           PENDING         —
-═══════════════════════════════════════════════════════════════
-  Progress: {done}/{total} done   {backlog} backlog   {deleted} deleted   {review} in review   {inprogress} in progress
-═══════════════════════════════════════════════════════════════
-```
-
-Also show any tasks with depends_on fields and whether their dependencies are resolved.
-
-If no sprint file is found, say: "No active sprint found. Run /sprint to start one."
+If no sprint file is found, say exactly:
+`No active sprint found. Run /sprint to start one.`

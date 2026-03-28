@@ -215,9 +215,9 @@ SPRINT_TASK_EOF
 
   echo "Wrote /sprint-task slash command to $COMMANDS_DIR/sprint-task.md"
 
-  # Install sprint-board and sprint-finish commands so they're available in each workspace
+  # Install shared sprint commands so they're available in each workspace
   if [ -n "$SPRINT_SKILL_DIR" ]; then
-    for cmd in sprint-board sprint-finish; do
+    for cmd in sprint-board sprint-finish sprint-upgrade; do
       if [ -f "$SPRINT_SKILL_DIR/commands/$cmd.md" ]; then
         cp "$SPRINT_SKILL_DIR/commands/$cmd.md" "$COMMANDS_DIR/$cmd.md"
         echo "Wrote /$cmd slash command to $COMMANDS_DIR/$cmd.md"

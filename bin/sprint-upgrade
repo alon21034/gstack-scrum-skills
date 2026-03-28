@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+# sprint-upgrade — Upgrade sprint skills package and reinstall commands
+# Usage: sprint-upgrade [--repo <path>] [setup options...]
+
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage: sprint-upgrade [--repo <path>] [setup options...]
+
+Options:
+  --repo <path>  Upgrade this sprint repository path instead of auto-detecting.
+  -h, --help     Show this help.
+
+Any additional arguments are passed through to ./setup.
+Examples:
+  sprint-upgrade
+  sprint-upgrade --host codex
+  sprint-upgrade --repo ~/.codex/skills/sprint --host auto
+USAGE
+}
+
+REPO_HINT=""
+SETUP_ARGS=()
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --repo)
+      if [ "$#" -lt 2 ]; then
+        echo "ERROR: --repo requires a path" >&2
+        exit 1
+      fi
+      REPO_HINT="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      SETUP_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+command -v git >/dev/null 2>&1 || {
+  echo "ERROR: git is required." >&2
+  exit 1
+}
+
+resolve_repo_root() {
+  if [ -n "$REPO_HINT" ]; then
+    echo "$REPO_HINT"
+    return 0
+  fi
+
+  local self_root
+  self_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  if [ -f "$self_root/setup" ]; then
+    echo "$self_root"
+    return 0
+  fi
+
+  local candidate
+  for candidate in "$HOME/.codex/skills/sprint" "$HOME/.claude/skills/sprint"; do
+    if [ -f "$candidate/setup" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+if ! REPO_ROOT="$(resolve_repo_root)"; then
+  echo "ERROR: Could not locate sprint repository root." >&2
+  echo "Provide it explicitly: sprint-upgrade --repo <path>" >&2
+  exit 1
+fi
+
+REPO_ROOT="$(cd "$REPO_ROOT" && pwd)"
+
+if [ ! -f "$REPO_ROOT/setup" ]; then
+  echo "ERROR: setup script not found at $REPO_ROOT/setup" >&2
+  exit 1
+fi
+
+if ! git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "ERROR: $REPO_ROOT is not a git repository. Cannot self-upgrade." >&2
+  echo "Reinstall by cloning the latest repo, then run ./setup." >&2
+  exit 1
+fi
+
+if ! git -C "$REPO_ROOT" diff --quiet || ! git -C "$REPO_ROOT" diff --cached --quiet; then
+  echo "ERROR: Repository has uncommitted changes: $REPO_ROOT" >&2
+  echo "Commit, stash, or discard local changes before running sprint-upgrade." >&2
+  exit 1
+fi
+
+BRANCH="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD)"
+if [ "$BRANCH" = "HEAD" ]; then
+  echo "ERROR: Repository is in detached HEAD state. Checkout a branch first." >&2
+  exit 1
+fi
+
+BEFORE_SHA="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
+UPSTREAM="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)"
+
+if [ -n "$UPSTREAM" ]; then
+  echo "Pulling latest changes for $BRANCH (tracking $UPSTREAM)..."
+  git -C "$REPO_ROOT" pull --ff-only
+else
+  REMOTE="origin"
+  if ! git -C "$REPO_ROOT" remote get-url "$REMOTE" >/dev/null 2>&1; then
+    echo "ERROR: No upstream configured for '$BRANCH' and remote '$REMOTE' is missing." >&2
+    echo "Set upstream or run: sprint-upgrade --repo <path> with a properly configured clone." >&2
+    exit 1
+  fi
+
+  echo "Fetching and fast-forwarding $REMOTE/$BRANCH..."
+  git -C "$REPO_ROOT" fetch "$REMOTE" "$BRANCH"
+  git -C "$REPO_ROOT" merge --ff-only "$REMOTE/$BRANCH"
+fi
+
+AFTER_SHA="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
+if [ "$BEFORE_SHA" = "$AFTER_SHA" ]; then
+  echo "Already up to date at $AFTER_SHA"
+else
+  echo "Updated: $BEFORE_SHA -> $AFTER_SHA"
+fi
+
+echo "Running setup to refresh installed commands/skills..."
+(
+  cd "$REPO_ROOT"
+  ./setup "${SETUP_ARGS[@]}"
+)
+
+echo "sprint-upgrade complete."
