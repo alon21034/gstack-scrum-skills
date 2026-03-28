@@ -32,6 +32,9 @@ Lightweight Scrum coordination layer for parallel AI development with [Conductor
 | `/sprint-finish` | Resolve remaining tasks and close sprint | End sprint and finalize statuses |
 | `/sprint-upgrade` | Upgrade sprint skills package | Refresh to latest version |
 
+Runtime note:
+- `sprint-setup`, `sprint-board`, `sprint-finish`, and `setup` run a non-blocking upgrade availability check and only print when an upgrade is available.
+
 Conductor note:
 
 - Codex Desktop slash commands come from `~/.codex/prompts` and show as `prompts:sprint-*`.

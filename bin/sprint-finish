@@ -8,6 +8,49 @@
 
 set -euo pipefail
 
+check_for_sprint_upgrade() {
+  if [ "${SPRINT_SKIP_UPGRADE_CHECK:-0}" = "1" ]; then
+    return 0
+  fi
+
+  local checker=""
+  local script_dir
+  local check_output
+  local check_rc
+
+  if command -v sprint-upgrade >/dev/null 2>&1; then
+    checker="$(command -v sprint-upgrade)"
+  else
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [ -x "$script_dir/sprint-upgrade" ]; then
+      checker="$script_dir/sprint-upgrade"
+    fi
+  fi
+
+  if [ -z "$checker" ]; then
+    return 0
+  fi
+
+  if check_output="$("$checker" --check --quiet 2>/dev/null)"; then
+    return 0
+  else
+    check_rc=$?
+  fi
+
+  case "$check_rc" in
+    10)
+      if [ -n "$check_output" ]; then
+        printf '%s\n' "$check_output" >&2
+      fi
+      ;;
+    *)
+      # Keep command flow resilient when check cannot be completed.
+      ;;
+  esac
+}
+
+check_for_sprint_upgrade
+
 if [ "$#" -ne 0 ]; then
   echo "Usage: sprint-finish" >&2
   exit 1

@@ -5,6 +5,45 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+check_for_sprint_upgrade() {
+  if [ "${SPRINT_SKIP_UPGRADE_CHECK:-0}" = "1" ]; then
+    return 0
+  fi
+
+  local checker=""
+  local check_output
+  local check_rc
+
+  if [ -x "$SCRIPT_DIR/bin/sprint-upgrade" ]; then
+    checker="$SCRIPT_DIR/bin/sprint-upgrade"
+  elif command -v sprint-upgrade >/dev/null 2>&1; then
+    checker="$(command -v sprint-upgrade)"
+  fi
+
+  if [ -z "$checker" ]; then
+    return 0
+  fi
+
+  if check_output="$("$checker" --check --quiet --repo "$SCRIPT_DIR" 2>/dev/null)"; then
+    return 0
+  else
+    check_rc=$?
+  fi
+
+  case "$check_rc" in
+    10)
+      if [ -n "$check_output" ]; then
+        printf '%s\n' "$check_output" >&2
+      fi
+      ;;
+    *)
+      # Keep setup resilient when check cannot be completed.
+      ;;
+  esac
+}
+
+check_for_sprint_upgrade
+
 SKILL_ROOT="${SKILL_ROOT:-}"
 COMMANDS_DIR="${COMMANDS_DIR:-}"
 INSTALL_HOST="${SETUP_HOST:-auto}"
