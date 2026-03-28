@@ -1,7 +1,7 @@
 ---
 name: sprint
 preamble-tier: 2
-version: 0.1.1
+version: 0.1.4
 description: |
   Lightweight Scrum coordination for multi-agent development with Conductor.
   Decomposes a sprint topic into tasks, writes .sprint.json, and configures
