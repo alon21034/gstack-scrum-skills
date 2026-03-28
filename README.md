@@ -1,4 +1,4 @@
-# gstack-scrum-skills
+# scrum-skills
 
 Personal Claude Code and Codex skills and tools.
 
