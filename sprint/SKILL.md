@@ -5,7 +5,7 @@ version: 0.1.4
 description: |
   Lightweight Scrum coordination for multi-agent development with Conductor.
   Decomposes a sprint topic into tasks, writes .sprint.json, and configures
-  conductor.json so each Conductor workspace auto-claims and executes a task.
+  Decomposes a sprint topic into tasks, writes .sprint.json for tracking.
   Use when starting a new sprint, parallelizing work across agents, or when asked
   to "start a sprint", "run parallel agents", or "set up multi-agent execution".
   Proactively suggest when the user mentions planning a sprint or using Conductor.
@@ -315,18 +315,14 @@ plan's living status.
 # /sprint — Multi-Agent Sprint Coordinator
 
 Sets up a gstack sprint: decomposes a topic into tasks, writes the sprint state file,
-and configures Conductor workspaces to auto-claim and execute tasks in parallel.
-
 The human's only job is to think about the sprint topic. Everything else is automatic.
 
 ## User-invocable
 When the user types `/sprint`, run this skill.
 
 ## Prerequisites
-- Conductor installed (https://docs.conductor.build/)
 - `jq` installed (`brew install jq`)
 - `python3` available (required for sprint board generation)
-- gstack sprint-setup script at `~/.codex/skills/gstack/bin/sprint-setup` (fallback: `~/.claude/skills/gstack/bin/sprint-setup`)
 
 ---
 
@@ -391,10 +387,25 @@ echo "SLUG: $SLUG"
 echo "BRANCH: $(git branch --show-current 2>/dev/null || echo unknown)"
 ```
 
-**Find existing plan:** Check for a prior `/autoplan` output for this branch:
+**Find design documents in `.context/`:** Check for design docs that can be used as task source:
 
 ```bash
 setopt +o nomatch 2>/dev/null || true
+ROOT="${CONDUCTOR_ROOT_PATH:-$(git rev-parse --show-toplevel 2>/dev/null)}"
+ls "$ROOT"/.context/*.md 2>/dev/null | grep -v sprint
+```
+
+If design doc(s) found in `.context/`:
+- List the found files
+- Ask: "Found design document(s) in `.context/`. How should we source tasks?"
+  - A) Use design document(s) as task source (recommended — read and decompose into tasks)
+  - B) Use existing autoplan / create new plan instead
+
+If option A: Read all found design docs. These become the task decomposition input. Extract implementation tasks from the design, ensuring each task has clear acceptance criteria derived from the design requirements.
+
+**If no design docs found, find existing plan:** Check for a prior `/autoplan` output for this branch:
+
+```bash
 _BRANCH=$(git branch --show-current 2>/dev/null | tr '/' '-')
 ls -t ~/.gstack/projects/$SLUG/*${_BRANCH}*plan*.md 2>/dev/null | head -3
 ```
@@ -419,11 +430,38 @@ Extract top-level numbered list items from the plan. These become sprint tasks.
 
 **Parsing rule:** Find lines matching `^\d+\. ` (top-level numbered items only, not sub-items). For each:
 - `title`: the text before the first ` — ` (dash separator) or the first 50 chars if no separator
-- `description`: the full line text (this is what the agent reads when executing)
+- `description`: the full line text, plus an `## Acceptance Criteria` section appended at the end
+
+**Acceptance criteria (驗收條件):** Every task description MUST end with an `## Acceptance Criteria` section containing concrete, verifiable checklist items. These define how to check if the task is done.
+
+- If the source material (design doc or plan) includes explicit acceptance criteria or requirements for a task, use those directly.
+- If not, derive acceptance criteria from the task description. Each criterion must be objectively verifiable (e.g., a test passes, a file exists, an API returns expected output).
+- Include 2-5 criteria per task. Prefer specific over vague.
+
+Format appended to each task's `description` field:
+```
+{original task description}
+
+## Acceptance Criteria
+- [ ] {concrete verifiable criterion 1}
+- [ ] {concrete verifiable criterion 2}
+- [ ] {concrete verifiable criterion 3}
+```
+
+Example:
+```
+Build the user authentication API endpoint with JWT token support.
+
+## Acceptance Criteria
+- [ ] POST /api/auth/login returns 200 with valid JWT token for correct credentials
+- [ ] POST /api/auth/login returns 401 for invalid credentials
+- [ ] JWT token contains user ID and expiration claim
+- [ ] Unit tests pass for auth endpoint (>= 3 test cases)
+```
 
 **Bounds check:**
 - If < 2 tasks extracted: Use AskUserQuestion — "The plan decomposed to only {N} task(s). The sprint needs at least 2 parallel tasks. Options: A) Narrow the scope and regenerate B) Add more tasks manually C) Proceed with {N} task(s) anyway"
-- If > 6 tasks extracted: Use AskUserQuestion — "The plan has {N} tasks — that's a lot of workspaces. Options: A) Merge smallest adjacent tasks (recommended, ~{N/2} tasks) B) Proceed with all {N} C) I'll pick which tasks to keep"
+- If > 6 tasks extracted: Use AskUserQuestion — "The plan has {N} tasks — that's a lot. Options: A) Merge smallest adjacent tasks (recommended, ~{N/2} tasks) B) Proceed with all {N} C) I'll pick which tasks to keep"
 
 **Dependency detection:** Tasks that reference the same module/file should be sequenced. If task B's description mentions a file created in task A, set `depends_on: [A_id]` on task B. Tasks with no shared files get no `depends_on` field (run in parallel).
 
@@ -448,8 +486,6 @@ Wait for confirmation before writing any files.
 Determine the sprint file location:
 
 ```bash
-# Prefer $CONDUCTOR_ROOT_PATH (shared across all workspaces)
-# Fall back to git repo root if running outside Conductor
 SPRINT_DIR="${CONDUCTOR_ROOT_PATH:-$(git rev-parse --show-toplevel 2>/dev/null)}"
 mkdir -p "$SPRINT_DIR/.context"
 SPRINT_FILE="$SPRINT_DIR/.context/.sprint.json"
@@ -483,12 +519,8 @@ Write the sprint file:
       "title": "{title}",
       "description": "{full description}",
       "status": "pending",
-      "workspace": null,
-      "branch": null,
       "started_at": null,
-      "completed_at": null,
-      "backlogged_at": null,
-      "deleted_at": null
+      "completed_at": null
     }
   ]
 }
@@ -502,36 +534,7 @@ Validate the written JSON with `jq empty "$SPRINT_FILE"` before proceeding.
 
 ---
 
-## Step 4: Merge conductor.json
-
-Read the existing `conductor.json` in the repo root if present. Preserve ALL existing fields,
-only updating `scripts.setup`. Do NOT overwrite `scripts.run` or `scripts.archive`.
-
-```bash
-CONDUCTOR_JSON="$(git rev-parse --show-toplevel 2>/dev/null)/conductor.json"
-```
-
-If `conductor.json` exists: read it, merge `scripts.setup`, write back.
-If it does not exist: create it with `scripts.setup` only (no `scripts.run` default — the user's project may not use npm).
-
-The setup script value to set:
-```
-bash -lc 'GSTACK_BIN="$HOME/.codex/skills/gstack/bin"; [ -x "$GSTACK_BIN/sprint-setup" ] || GSTACK_BIN="$HOME/.claude/skills/gstack/bin"; "$GSTACK_BIN/sprint-setup" "$CONDUCTOR_WORKSPACE_NAME" "$CONDUCTOR_ROOT_PATH"'
-```
-
-Example merged output:
-```json
-{
-  "scripts": {
-    "setup": "bash -lc 'GSTACK_BIN=\"$HOME/.codex/skills/gstack/bin\"; [ -x \"$GSTACK_BIN/sprint-setup\" ] || GSTACK_BIN=\"$HOME/.claude/skills/gstack/bin\"; \"$GSTACK_BIN/sprint-setup\" \"$CONDUCTOR_WORKSPACE_NAME\" \"$CONDUCTOR_ROOT_PATH\"'",
-    "run": "npm run dev"
-  }
-}
-```
-
----
-
-## Step 5: Print instructions
+## Step 4: Print instructions
 
 Output a clear summary:
 
@@ -540,16 +543,12 @@ Sprint created: {sprint-id}
 Topic: {topic}
 Tasks: {N} ({M} parallel, {K} sequential)
 
-Sprint board:
-  sprint-board {sprint-file-path}
-  sprint-board {sprint-file-path} --text
+Sprint file: {sprint-file-path}
 
 Next steps:
-  1. Open Conductor
-  2. Press ⌘+K {N} times (once per task)
-     Each workspace will auto-claim a task and start executing.
-  3. Open the board: sprint-board {sprint-file-path}
-  4. When implementation/review is complete, run: sprint-finish
+  1. Pick a task and run /sprint-task to start implementation
+  2. View progress: sprint-board {sprint-file-path}
+  3. When all tasks are done, run: sprint-finish
 ```
 
 ---
